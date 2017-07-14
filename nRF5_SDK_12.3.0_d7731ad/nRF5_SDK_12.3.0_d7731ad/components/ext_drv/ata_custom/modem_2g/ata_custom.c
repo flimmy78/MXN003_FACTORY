@@ -1,70 +1,6 @@
-#include <stdint.h>
-#include <string.h>
-#include <stdio.h>
-#include <stdbool.h>
 #include "uart_putbytes.h"
 #include "ata_test_modem_2g.h"
-
-
-
-#define MAX_UART_LEN	128 
-#define COMMAND_LINE_SIZE    (180)
-#define NULL_TERMINATOR_LENGTH (1)
-#define COMMA_UNIT_MAX 10
-
-typedef enum
-{
-	CUSTOM_RSP_ERROR = -1,
-	CUSTOM_RSP_OK = 0,
-	CUSTOM_RSP_LATER
-} custom_rsp_type_enum;
-
-typedef struct 
-{
-	short  position;
-	short  length;
-	char   character[COMMAND_LINE_SIZE + NULL_TERMINATOR_LENGTH];
-} custom_cmdLine;
-
-typedef struct
-{
-	char *commandString;
-	custom_rsp_type_enum (*commandFunc)(custom_cmdLine *commandBuffer_p);
-} custom_atcmd;
-
-
-typedef enum
-{
-	CUSTOM_WRONG_MODE,
-	CUSTOM_SET_OR_EXECUTE_MODE,
-	CUSTOM_READ_MODE,
-	CUSTOM_TEST_MODE,
-	CUSTOM_ACTIVE_MODE
-} custom_cmd_mode_enum;
-
-typedef enum
-{
-    CM_Main,
-    CM_Par1,
-    CM_Par2,
-    CM_Par3,
-    CM_Par4,
-    CM_Par5,
-    CM_Par6,
-    CM_Par7,
-    CM_Par8,
-    CMD_MAX_Pars
-} Cmd_Pars;
-
-
-typedef struct
-{
-	short  position;
-	uint8_t   	 part;
-	char     	 	 rcv_msg[MAX_UART_LEN];
-	char       	 *pars[COMMA_UNIT_MAX];
-	uint16_t      rcv_length;
-} cmd_data_struct;
+#include "ata_custom_interface.h"
 
 
 custom_cmd_mode_enum custom_find_cmd_mode(custom_cmdLine *cmd_line)
@@ -232,7 +168,7 @@ static int cmd_analyse(cmd_data_struct * command)
 	return 1;
 }
 
-static cmd_data_struct at_get_at_para(custom_cmdLine *commandBuffer_p)
+cmd_data_struct at_get_at_para(custom_cmdLine *commandBuffer_p)
 {
 		static cmd_data_struct at_cmd = {0};
 		if(commandBuffer_p->length && (commandBuffer_p->length <(COMMAND_LINE_SIZE + NULL_TERMINATOR_LENGTH)))
@@ -257,7 +193,7 @@ static custom_rsp_type_enum custom_test_func(custom_cmdLine *commandBuffer_p)
     result = custom_find_cmd_mode(commandBuffer_p);		
 		cmd = at_get_at_para(commandBuffer_p);
 		for(int m =0 ; m < cmd.part; m++)
- 			PutUARTBytes(" cmd.pard =%d cmd.pars[%d] = %s",cmd.part,m,cmd.pars[m]);
+ 			PutUARTBytes("cmd.pard =%d cmd.pars[%d] = %s",cmd.part,m,cmd.pars[m]);
 		PutUARTBytes("result = %d",result);
     switch (result)
     {
@@ -280,30 +216,7 @@ static custom_rsp_type_enum custom_test_func(custom_cmdLine *commandBuffer_p)
     return ret_value;
 }
 
-static custom_rsp_type_enum custom_sensor_func(custom_cmdLine *commandBuffer_p)
-{
-    custom_cmd_mode_enum result;
-		cmd_data_struct cmd;
-    custom_rsp_type_enum ret_value  = CUSTOM_RSP_ERROR;
-    result = custom_find_cmd_mode(commandBuffer_p);		
-		cmd = at_get_at_para(commandBuffer_p);
-		
-		for(int m =0 ; m < cmd.part; m++)
-			PutUARTBytes(" cmd.pard =%d cmd.pars[%d] = %s",cmd.part,m,cmd.pars[m]);
-	
-		PutUARTBytes("result = %d",result);
-    switch (result)
-    {
-        case CUSTOM_READ_MODE:
-						PutUARTBytes("+MSENSOR:1");
-            ret_value = CUSTOM_RSP_OK;
-            break;
-        default:
-            ret_value = CUSTOM_RSP_ERROR;
-            break;
-	}
-    return ret_value;
-}
+
 
 
 const custom_atcmd custom_cmd_table[ ] =
