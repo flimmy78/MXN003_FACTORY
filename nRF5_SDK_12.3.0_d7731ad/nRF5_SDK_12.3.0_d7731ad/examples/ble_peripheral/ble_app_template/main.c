@@ -80,6 +80,7 @@
 #include "ble_advdata.h"
 #include "ble_advertising.h"
 #include "ble_conn_state.h"
+#include "app_uart.h"
 
 #define NRF_LOG_MODULE_NAME "APP"
 #include "nrf_log.h"
@@ -99,7 +100,7 @@
 #define DEVICE_NAME                     "Nordic_Template"                           /**< Name of device. Will be included in the advertising data. */
 #define MANUFACTURER_NAME               "NordicSemiconductor"                       /**< Manufacturer. Will be passed to Device Information Service. */
 #define APP_ADV_INTERVAL                300                                         /**< The advertising interval (in units of 0.625 ms. This value corresponds to 187.5 ms). */
-#define APP_ADV_TIMEOUT_IN_SECONDS      180                                         /**< The advertising timeout in units of seconds. */
+#define APP_ADV_TIMEOUT_IN_SECONDS      0                                         /**< The advertising timeout in units of seconds. */
 
 #define APP_TIMER_PRESCALER             0                                           /**< Value of the RTC1 PRESCALER register. */
 #define APP_TIMER_OP_QUEUE_SIZE         4                                           /**< Size of timer operation queues. */
@@ -125,6 +126,9 @@
 #define DEAD_BEEF                       0xDEADBEEF                                  /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
 
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;                            /**< Handle of the current connection. */
+
+#define UART_TX_BUF_SIZE                256                                         /**< UART TX buffer size. */
+#define UART_RX_BUF_SIZE                1                                         /**< UART RX buffer size. */
 
 /* YOUR_JOB: Declare all services structure your application is using
    static ble_xx_service_t                     m_xxs;
@@ -801,6 +805,41 @@ static void advertising_start(void)
     APP_ERROR_CHECK(err_code);
 }
 
+void uart_event_handle(app_uart_evt_t * p_event)
+{
+    if (p_event->evt_type == APP_UART_COMMUNICATION_ERROR)
+    {
+        APP_ERROR_HANDLER(p_event->data.error_communication);
+    }
+    else if (p_event->evt_type == APP_UART_FIFO_ERROR)
+    {
+        APP_ERROR_HANDLER(p_event->data.error_code);
+    }
+}
+
+
+void uart_init(void)
+{
+    uint32_t                     err_code;
+    const app_uart_comm_params_t comm_params =
+    {
+        RX_PIN_NUMBER,
+        TX_PIN_NUMBER,
+        RTS_PIN_NUMBER,
+        CTS_PIN_NUMBER,
+        APP_UART_FLOW_CONTROL_DISABLED,
+        false,
+        UART_BAUDRATE_BAUDRATE_Baud115200
+    };
+
+    APP_UART_FIFO_INIT( &comm_params,
+                       UART_RX_BUF_SIZE,
+                       UART_TX_BUF_SIZE,
+                       uart_event_handle,
+                       APP_IRQ_PRIORITY_LOWEST,
+                       err_code);
+    APP_ERROR_CHECK(err_code);
+}
 
 /**@brief Function for application main entry.
  */
@@ -812,7 +851,7 @@ int main(void)
     // Initialize.
     err_code = NRF_LOG_INIT(NULL);
     APP_ERROR_CHECK(err_code);
-
+		uart_init();
     timers_init();
     buttons_leds_init(&erase_bonds);
     ble_stack_init();
@@ -831,7 +870,7 @@ int main(void)
     application_timers_start();
     err_code = ble_advertising_start(BLE_ADV_MODE_FAST);
     APP_ERROR_CHECK(err_code);
-
+		printf("uart ok\r\n");
     // Enter main loop.
     for (;;)
     {
