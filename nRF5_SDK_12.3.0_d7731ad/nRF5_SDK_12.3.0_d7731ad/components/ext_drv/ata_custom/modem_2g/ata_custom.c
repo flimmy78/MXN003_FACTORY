@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include "uart_putbytes.h"
+#include "ata_test_modem_2g.h"
+
 
 
 #define MAX_UART_LEN	128 
@@ -81,8 +83,8 @@ custom_cmd_mode_enum custom_find_cmd_mode(custom_cmdLine *cmd_line)
             }
             case '=':  /* AT+...= */
             {
-                cmd_line->position++;
-                if ((cmd_line->position < cmd_line->length - 1 ) &&
+                cmd_line->position++;								
+                if ((cmd_line->position < cmd_line->length ) &&
                     (cmd_line->character[cmd_line->position] == '?'))
                 {
                     cmd_line->position++;
@@ -191,6 +193,7 @@ static int cmd_analyse(cmd_data_struct * command)
 	data_ptr = &command->rcv_msg[command->position];//parse_sms_head(command->rcv_msg); 
 	
 	cmd_Len = strlen(data_ptr);
+	
 
     if(data_ptr[cmd_Len - 3] == '#' && data_ptr[cmd_Len - 2] == 0x0D && data_ptr[cmd_Len - 1] == 0x0A)
     {
@@ -254,8 +257,8 @@ static custom_rsp_type_enum custom_test_func(custom_cmdLine *commandBuffer_p)
     result = custom_find_cmd_mode(commandBuffer_p);		
 		cmd = at_get_at_para(commandBuffer_p);
 		for(int m =0 ; m < cmd.part; m++)
-			PutUARTBytes(" cmd.pard =%d cmd.pars[%d] = %s",cmd.part,m,cmd.pars[m]);
-	
+ 			PutUARTBytes(" cmd.pard =%d cmd.pars[%d] = %s",cmd.part,m,cmd.pars[m]);
+		PutUARTBytes("result = %d",result);
     switch (result)
     {
         case CUSTOM_READ_MODE:
@@ -277,10 +280,36 @@ static custom_rsp_type_enum custom_test_func(custom_cmdLine *commandBuffer_p)
     return ret_value;
 }
 
+static custom_rsp_type_enum custom_sensor_func(custom_cmdLine *commandBuffer_p)
+{
+    custom_cmd_mode_enum result;
+		cmd_data_struct cmd;
+    custom_rsp_type_enum ret_value  = CUSTOM_RSP_ERROR;
+    result = custom_find_cmd_mode(commandBuffer_p);		
+		cmd = at_get_at_para(commandBuffer_p);
+		
+		for(int m =0 ; m < cmd.part; m++)
+			PutUARTBytes(" cmd.pard =%d cmd.pars[%d] = %s",cmd.part,m,cmd.pars[m]);
+	
+		PutUARTBytes("result = %d",result);
+    switch (result)
+    {
+        case CUSTOM_READ_MODE:
+						PutUARTBytes("+MSENSOR:1");
+            ret_value = CUSTOM_RSP_OK;
+            break;
+        default:
+            ret_value = CUSTOM_RSP_ERROR;
+            break;
+	}
+    return ret_value;
+}
+
 
 const custom_atcmd custom_cmd_table[ ] =
 {    
 	{"AT%CUSTOM",custom_test_func},
+	{"AT+MSENSOR",custom_sensor_func},
   {NULL, NULL}  // this lind should not be removed, it will be treat as 
 };
 
@@ -323,8 +352,9 @@ bool mt2503_custom_common_hdlr(char *full_cmd_string)
             }
             return true;
         }
-    }    
-		
+    }   
+			
+		PutUARTBytes("\r\nERROR\r\n");  //no command
 		return true;
 }
 

@@ -848,7 +848,6 @@ static void uart_event_handle(app_uart_evt_t * p_event)
         case APP_UART_DATA_READY:
             UNUSED_VARIABLE(app_uart_get(&data_array[index]));
             index++;
-					
 						if(timer_start == 0){
 							app_timer_start(uart_timer_id, UART_IMTES_INTERVAL, NULL);
 							timer_start = 1;
