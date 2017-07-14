@@ -46,6 +46,9 @@ extern "C" {
 
 #include "nrf_gpio.h"
 
+	
+// MXN003 
+#define MODME_CONTRL_PIN  10
 // LEDs definitions for PCA10028
 #define LEDS_NUMBER    4
 
@@ -88,8 +91,8 @@ extern "C" {
 
 #define RX_PIN_NUMBER  11
 #define TX_PIN_NUMBER  9
-#define CTS_PIN_NUMBER 10
-#define RTS_PIN_NUMBER 8
+#define CTS_PIN_NUMBER 0xff
+#define RTS_PIN_NUMBER 0xff
 #define HWFC           true
 
 #define SPIS_MISO_PIN  28    // SPI MISO signal.

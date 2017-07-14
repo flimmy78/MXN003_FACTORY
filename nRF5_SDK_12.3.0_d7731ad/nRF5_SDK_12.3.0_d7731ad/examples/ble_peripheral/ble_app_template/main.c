@@ -86,6 +86,9 @@
 #include "nrf_log.h"
 #include "nrf_log_ctrl.h"
 
+
+#include <modem_2g.h>
+
 #define IS_SRVC_CHANGED_CHARACT_PRESENT 1                                           /**< Include or not the service_changed characteristic. if not enabled, the server's database cannot be changed for the lifetime of the device*/
 
 #if (NRF_SD_BLE_API_VERSION == 3)
@@ -97,7 +100,7 @@
 #define CENTRAL_LINK_COUNT              0                                           /**< Number of central links used by the application. When changing this number remember to adjust the RAM settings*/
 #define PERIPHERAL_LINK_COUNT           1                                           /**< Number of peripheral links used by the application. When changing this number remember to adjust the RAM settings*/
 
-#define DEVICE_NAME                     "Nordic_Template"                           /**< Name of device. Will be included in the advertising data. */
+#define DEVICE_NAME                     "MXN003F"                           			/**< Name of device. Will be included in the advertising data. */
 #define MANUFACTURER_NAME               "NordicSemiconductor"                       /**< Manufacturer. Will be passed to Device Information Service. */
 #define APP_ADV_INTERVAL                300                                         /**< The advertising interval (in units of 0.625 ms. This value corresponds to 187.5 ms). */
 #define APP_ADV_TIMEOUT_IN_SECONDS      0                                         /**< The advertising timeout in units of seconds. */
@@ -852,6 +855,7 @@ int main(void)
     err_code = NRF_LOG_INIT(NULL);
     APP_ERROR_CHECK(err_code);
 		uart_init();
+		modem_2g_init(MODME_CONTRL_PIN);
     timers_init();
     buttons_leds_init(&erase_bonds);
     ble_stack_init();
@@ -870,7 +874,6 @@ int main(void)
     application_timers_start();
     err_code = ble_advertising_start(BLE_ADV_MODE_FAST);
     APP_ERROR_CHECK(err_code);
-		printf("uart ok\r\n");
     // Enter main loop.
     for (;;)
     {
