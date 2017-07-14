@@ -81,13 +81,18 @@
 #include "ble_advertising.h"
 #include "ble_conn_state.h"
 #include "app_uart.h"
+#include "nrf_delay.h"
 
-#define NRF_LOG_MODULE_NAME "APP"
+#define NRF_LOG_MODULE_NAME "MXN003F"
 #include "nrf_log.h"
 #include "nrf_log_ctrl.h"
+#include "ata_custom.h"
 
 
 #include <modem_2g.h>
+
+#define __ATA_TEST_MODE__
+
 
 #define IS_SRVC_CHANGED_CHARACT_PRESENT 1                                           /**< Include or not the service_changed characteristic. if not enabled, the server's database cannot be changed for the lifetime of the device*/
 
@@ -133,6 +138,15 @@ static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;                        
 #define UART_TX_BUF_SIZE                256                                         /**< UART TX buffer size. */
 #define UART_RX_BUF_SIZE                1                                         /**< UART RX buffer size. */
 
+APP_TIMER_DEF(uart_timer_id);
+#define UART_IMTES_INTERVAL       APP_TIMER_TICKS(100, APP_TIMER_PRESCALER)
+#define UART_BUFFER_SIZE (128)
+static uint8_t data_array[UART_BUFFER_SIZE];
+static uint8_t index = 0;
+static uint8_t timer_start = 0;
+static void uart_timeout_handler(void * p_context);
+
+
 /* YOUR_JOB: Declare all services structure your application is using
    static ble_xx_service_t                     m_xxs;
    static ble_yy_service_t                     m_yys;
@@ -158,6 +172,8 @@ void assert_nrf_callback(uint16_t line_num, const uint8_t * p_file_name)
 {
     app_error_handler(DEAD_BEEF, line_num, p_file_name);
 }
+
+
 
 
 /**@brief Function for handling Peer Manager events.
@@ -280,6 +296,11 @@ static void timers_init(void)
        uint32_t err_code;
        err_code = app_timer_create(&m_app_timer_id, APP_TIMER_MODE_REPEATED, timer_timeout_handler);
        APP_ERROR_CHECK(err_code); */
+			uint32_t err_code;
+			err_code = app_timer_create(&uart_timer_id,
+                                APP_TIMER_MODE_REPEATED,
+                                uart_timeout_handler);
+			APP_ERROR_CHECK(err_code);
 }
 
 
@@ -808,8 +829,66 @@ static void advertising_start(void)
     APP_ERROR_CHECK(err_code);
 }
 
+static void uart_timeout_handler(void * p_context)
+{
+    UNUSED_PARAMETER(p_context);
+		app_timer_stop(uart_timer_id);
+		mt2503_custom_common_hdlr((char *)data_array);
+		memset(data_array, 0, UART_BUFFER_SIZE);
+		timer_start = 0;
+		index = 0;
+}
+
+#if 1
+static void uart_event_handle(app_uart_evt_t * p_event)
+{
+
+    switch (p_event->evt_type)
+    {
+        case APP_UART_DATA_READY:
+            UNUSED_VARIABLE(app_uart_get(&data_array[index]));
+            index++;
+					
+						if(timer_start == 0){
+							app_timer_start(uart_timer_id, UART_IMTES_INTERVAL, NULL);
+							timer_start = 1;
+						}		
+						
+						if((index >= (UART_BUFFER_SIZE)))
+						{
+							memset(data_array, 0, UART_BUFFER_SIZE);
+							index = 0;
+						} 
+						
+						if((data_array[index - 1] == '\n') && (timer_start == 1)){
+							app_timer_stop(uart_timer_id);
+							mt2503_custom_common_hdlr((char *)data_array);
+							
+							memset(data_array, 0, UART_BUFFER_SIZE);
+							index = 0;
+							timer_start = 0;
+						}
+
+            break;
+
+        case APP_UART_COMMUNICATION_ERROR:
+            APP_ERROR_HANDLER(p_event->data.error_communication);
+            break;
+
+        case APP_UART_FIFO_ERROR:
+            APP_ERROR_HANDLER(p_event->data.error_code);
+            break;
+
+        default:
+            break;
+    }
+		
+}
+
+#else
 void uart_event_handle(app_uart_evt_t * p_event)
 {
+	
     if (p_event->evt_type == APP_UART_COMMUNICATION_ERROR)
     {
         APP_ERROR_HANDLER(p_event->data.error_communication);
@@ -819,6 +898,7 @@ void uart_event_handle(app_uart_evt_t * p_event)
         APP_ERROR_HANDLER(p_event->data.error_code);
     }
 }
+#endif
 
 
 void uart_init(void)
@@ -846,6 +926,29 @@ void uart_init(void)
 
 /**@brief Function for application main entry.
  */
+//static void uart_getline(uint8_t * line)
+//{
+//    uint8_t i = 0, ch = 0;
+//    uint32_t err_code;
+
+//		do {
+//			err_code = app_uart_get(&ch);
+//			if (NRF_ERROR_NOT_FOUND == err_code)
+//			{
+//				sd_app_evt_wait();
+//			}
+//			else if (NRF_SUCCESS == err_code)   
+//			{
+//				line[i++] = ch;
+//			}
+//			else
+//			{
+//				APP_ERROR_CHECK(err_code);
+//			}
+//		}
+//		while (ch != '\n');
+//}
+
 int main(void)
 {
     uint32_t err_code;
@@ -854,8 +957,11 @@ int main(void)
     // Initialize.
     err_code = NRF_LOG_INIT(NULL);
     APP_ERROR_CHECK(err_code);
-		uart_init();
 		modem_2g_init(MODME_CONTRL_PIN);
+		modem_2g_open(MODME_CONTRL_PIN); //开机打开2G模块，进入测试
+		nrf_delay_ms(500);
+		uart_init();
+		
     timers_init();
     buttons_leds_init(&erase_bonds);
     ble_stack_init();
@@ -875,8 +981,14 @@ int main(void)
     err_code = ble_advertising_start(BLE_ADV_MODE_FAST);
     APP_ERROR_CHECK(err_code);
     // Enter main loop.
+//		uint8_t buffer[512] = {0};
     for (;;)
-    {
+    {	
+//				#ifdef __ATA_TEST_MODE__
+//				memset(buffer, 0 , sizeof(buffer));
+//				uart_getline(buffer);
+//				NRF_LOG_INFO("x %s\r\n",(uint32_t)buffer);
+//				#endif
         if (NRF_LOG_PROCESS() == false)
         {
             power_manage();
