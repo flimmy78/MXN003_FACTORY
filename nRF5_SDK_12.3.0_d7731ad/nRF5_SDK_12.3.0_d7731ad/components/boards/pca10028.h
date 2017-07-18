@@ -49,6 +49,16 @@ extern "C" {
 	
 // MXN003 
 #define MODME_CONTRL_PIN  10
+	
+#define ELE_MACH_PIN 14
+#define ELE_MACH_CONTRL_PIN1  	17
+#define ELE_MACH_CONTRL_PIN2    18
+	
+	
+#define VOICE_CHIP_PIN  8
+#define VOICE_MOSE_PIN 20
+	
+	
 // LEDs definitions for PCA10028
 #define LEDS_NUMBER    4
 
@@ -70,31 +80,33 @@ extern "C" {
 #define BSP_LED_2      LED_3
 #define BSP_LED_3      LED_4
 
-#define BUTTONS_NUMBER 4
+#define BUTTONS_NUMBER 3
 
-#define BUTTON_START   17
-#define BUTTON_1       17
-#define BUTTON_2       18
-#define BUTTON_3       19
-#define BUTTON_4       20
-#define BUTTON_STOP    20
-#define BUTTON_PULL    NRF_GPIO_PIN_PULLUP
+#define BUTTON_START   3
+#define BUTTON_1       3
+#define BUTTON_2       4
+#define BUTTON_3       5
+//#define BUTTON_4       20
+#define BUTTON_STOP    5
+#define BUTTON_PULL    NRF_GPIO_PIN_NOPULL
 
 #define BUTTONS_ACTIVE_STATE 0
 
-#define BUTTONS_LIST { BUTTON_1, BUTTON_2, BUTTON_3, BUTTON_4 }
+//#define BUTTONS_LIST { BUTTON_1, BUTTON_2, BUTTON_3, BUTTON_4 }
+#define BUTTONS_LIST { BUTTON_1, BUTTON_2, BUTTON_3 }
 
 #define BSP_BUTTON_0   BUTTON_1
 #define BSP_BUTTON_1   BUTTON_2
 #define BSP_BUTTON_2   BUTTON_3
-#define BSP_BUTTON_3   BUTTON_4
+//#define BSP_BUTTON_3   BUTTON_4
 
 #define RX_PIN_NUMBER  11
 #define TX_PIN_NUMBER  9
 #define CTS_PIN_NUMBER 0xff
 #define RTS_PIN_NUMBER 0xff
-#define HWFC           true
+#define HWFC           false
 
+#if 0
 #define SPIS_MISO_PIN  28    // SPI MISO signal.
 #define SPIS_CSN_PIN   12    // SPI CSN signal.
 #define SPIS_MOSI_PIN  25    // SPI MOSI signal.
@@ -165,7 +177,7 @@ extern "C" {
 #define ARDUINO_A3_PIN              4     // Analog channel 3
 #define ARDUINO_A4_PIN              5     // Analog channel 4
 #define ARDUINO_A5_PIN              6     // Analog channel 5
-
+#endif
 // Low frequency clock source to be used by the SoftDevice
 //#ifdef S210
 //#define NRF_CLOCK_LFCLKSRC      NRF_CLOCK_LFCLKSRC_XTAL_20_PPM

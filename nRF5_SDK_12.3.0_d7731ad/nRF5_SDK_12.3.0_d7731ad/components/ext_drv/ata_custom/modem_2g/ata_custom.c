@@ -3,6 +3,7 @@
 #include "ata_custom_interface.h"
 
 
+
 custom_cmd_mode_enum custom_find_cmd_mode(custom_cmdLine *cmd_line)
 {
     custom_cmd_mode_enum result;
@@ -223,6 +224,11 @@ const custom_atcmd custom_cmd_table[ ] =
 {    
 	{"AT%CUSTOM",custom_test_func},
 	{"AT+MSENSOR",custom_sensor_func},
+	{"AT+SWITDET",custom_switdet_func},
+	{"AT+ELECONTRL",custom_elecontrl_func},
+	{"AT+VOCHIP",custom_vochip_func},
+	{"AT+ADC",custom_adc_func},
+	//{"AT+MSENSOR",custom_sensor_func},
   {NULL, NULL}  // this lind should not be removed, it will be treat as 
 };
 
@@ -259,15 +265,15 @@ bool mt2503_custom_common_hdlr(char *full_cmd_string)
             command_line.length = strlen(command_line.character);
             command_line.position = index;
             if (custom_cmd_table[i].commandFunc(&command_line) == CUSTOM_RSP_OK) {
-								PutUARTBytes("\r\nOK\r\n");
+								//PutUARTBytes("OK");
 						}else{
-								PutUARTBytes("\r\nERROR\r\n");
+								//PutUARTBytes("\r\nERROR\r\n");
             }
             return true;
         }
     }   
 			
-		PutUARTBytes("\r\nERROR\r\n");  //no command
+	//	PutUARTBytes("\r\nERROR\r\n");  //no command
 		return true;
 }
 

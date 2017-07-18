@@ -21,12 +21,12 @@ static void U_PutUARTByte(char * fmt, int size){
 
 void PutUARTBytes(const char *fmt, ...)
 {
-    static char logCbuf[512];
+    static char logCbuf[1024];
     va_list args;
     char *p;
     int n, m;
 
-    memset(logCbuf, 0, 512);
+    memset(logCbuf, 0, 1024);
     p = logCbuf;
     m = 1020;
     va_start(args, fmt);

@@ -2879,6 +2879,11 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\..\..\..\components\ext_drv\uart_putbytes\uart_putbytes.c</FilePath>
             </File>
+            <File>
+              <FileName>ata_test_modem_2g.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\..\components\ext_drv\ata_custom\modem_2g\ata_test_modem_2g.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -5760,6 +5765,11 @@
               <FileName>uart_putbytes.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\..\..\..\components\ext_drv\uart_putbytes\uart_putbytes.c</FilePath>
+            </File>
+            <File>
+              <FileName>ata_test_modem_2g.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\..\..\..\components\ext_drv\ata_custom\modem_2g\ata_test_modem_2g.c</FilePath>
             </File>
           </Files>
         </Group>

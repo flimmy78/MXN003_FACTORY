@@ -82,11 +82,14 @@
 #include "ble_conn_state.h"
 #include "app_uart.h"
 #include "nrf_delay.h"
+#include "battery_adc.h"
 
 #define NRF_LOG_MODULE_NAME "MXN003F"
 #include "nrf_log.h"
 #include "nrf_log_ctrl.h"
 #include "ata_custom.h"
+#include "ele_control.h"
+#include "voice_chip.h"
 
 
 #include <modem_2g.h>
@@ -848,6 +851,7 @@ static void uart_event_handle(app_uart_evt_t * p_event)
         case APP_UART_DATA_READY:
             UNUSED_VARIABLE(app_uart_get(&data_array[index]));
             index++;
+						
 						if(timer_start == 0){
 							app_timer_start(uart_timer_id, UART_IMTES_INTERVAL, NULL);
 							timer_start = 1;
@@ -956,11 +960,13 @@ int main(void)
     // Initialize.
     err_code = NRF_LOG_INIT(NULL);
     APP_ERROR_CHECK(err_code);
+		ele_mach_init();  //电机初始化
+		voice_chip_init();  //语音芯片初始化
+		adc_config_init();  //ADC 初始化
 		modem_2g_init(MODME_CONTRL_PIN);
 		modem_2g_open(MODME_CONTRL_PIN); //开机打开2G模块，进入测试
 		nrf_delay_ms(500);
 		uart_init();
-		
     timers_init();
     buttons_leds_init(&erase_bonds);
     ble_stack_init();

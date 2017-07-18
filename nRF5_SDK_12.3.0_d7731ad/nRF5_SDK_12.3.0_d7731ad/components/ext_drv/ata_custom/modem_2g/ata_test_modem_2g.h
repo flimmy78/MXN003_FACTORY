@@ -8,7 +8,10 @@ extern "C" {
 #endif
 	
 custom_rsp_type_enum custom_sensor_func(custom_cmdLine *commandBuffer_p);
-
+custom_rsp_type_enum custom_switdet_func(custom_cmdLine *commandBuffer_p);
+custom_rsp_type_enum custom_elecontrl_func(custom_cmdLine *commandBuffer_p);
+custom_rsp_type_enum custom_vochip_func(custom_cmdLine *commandBuffer_p);
+custom_rsp_type_enum custom_adc_func(custom_cmdLine *commandBuffer_p);
 
 #ifdef __cplusplus
 }
