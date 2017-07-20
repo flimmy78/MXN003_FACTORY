@@ -49,5 +49,7 @@ uint8_t close_sensor_monitor(void);
 
 /*call back handle*/
 void sensor_callback_handle(void);
+
+sensor_type_enum sensor_get_type(void);
 #endif
 

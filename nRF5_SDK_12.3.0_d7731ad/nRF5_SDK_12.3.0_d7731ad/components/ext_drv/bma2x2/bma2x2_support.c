@@ -60,6 +60,8 @@
 #include <string.h>
 #include "sensor_drv.h"
 #include "twi_master.h"
+#include "nrf_log.h"
+#include "nrf_log_ctrl.h"
 
 struct bma2x2_t bma2x2;
 
@@ -148,7 +150,7 @@ void bma2x2_power_off(void)
 int8_t bm2x2_check_chipid(void){
 	I2C_routine();
 	/*i2c init*/
-	twi_master_init();  
+	twi_master_init(); 
 		/*sw rest*/
 	bma2x2_soft_rst();
 	bma2x2_init(&bma2x2);

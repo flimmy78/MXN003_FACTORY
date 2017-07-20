@@ -51,7 +51,7 @@ int8_t sensor_type_auto_maching_init(void)
 
 		if((sensor_config_data.sensor_type <= SENSOR_NOT_READY) ||\
 				(sensor_config_data.sensor_type >= SENSOR_TYPE_MAX)){
-				return -1;;
+				return -1;
 		}else{
 			sensor_function_init(sensor_config_data.sensor_type);
 			return sensor_config_data.sensor_type;

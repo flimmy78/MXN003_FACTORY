@@ -224,10 +224,10 @@ const custom_atcmd custom_cmd_table[ ] =
 {    
 	{"AT%CUSTOM",custom_test_func},
 	{"AT+MSENSOR",custom_sensor_func},
-	{"AT+SWITDET",custom_switdet_func},
-	{"AT+ELECONTRL",custom_elecontrl_func},
-	{"AT+VOCHIP",custom_vochip_func},
-	{"AT+ADC",custom_adc_func},
+	{"AT+MSWITDET",custom_switdet_func},
+	{"AT+MELECONTRL",custom_elecontrl_func},
+	{"AT+MVOCHIP",custom_vochip_func},
+	{"AT+MADC",custom_adc_func},
 	//{"AT+MSENSOR",custom_sensor_func},
   {NULL, NULL}  // this lind should not be removed, it will be treat as 
 };

@@ -951,11 +951,12 @@ void uart_init(void)
 //		}
 //		while (ch != '\n');
 //}
-
+#include "sensor_drv.h"
 int main(void)
 {
     uint32_t err_code;
     bool     erase_bonds;
+		int8_t sensor_status;
 
     // Initialize.
     err_code = NRF_LOG_INIT(NULL);
@@ -967,6 +968,12 @@ int main(void)
 		modem_2g_open(MODME_CONTRL_PIN); //开机打开2G模块，进入测试
 		nrf_delay_ms(500);
 		uart_init();
+		sensor_status = sensor_type_auto_maching_init();
+		if(sensor_status != 1){
+			NRF_LOG_INFO("sensor error\r\n");
+		}else{
+			open_sensor_monitor(1);
+		}
     timers_init();
     buttons_leds_init(&erase_bonds);
     ble_stack_init();
@@ -987,6 +994,7 @@ int main(void)
     APP_ERROR_CHECK(err_code);
     // Enter main loop.
 //		uint8_t buffer[512] = {0};
+		
     for (;;)
     {	
 //				#ifdef __ATA_TEST_MODE__
