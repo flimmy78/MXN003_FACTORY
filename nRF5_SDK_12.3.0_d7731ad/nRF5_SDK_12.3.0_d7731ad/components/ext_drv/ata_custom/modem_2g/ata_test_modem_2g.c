@@ -110,6 +110,7 @@ custom_rsp_type_enum custom_adc_func(custom_cmdLine *commandBuffer_p){
     {
 				case CUSTOM_READ_MODE:
 						start_read_adc();
+						nrf_delay_ms(500);
 						PutUARTBytes("AT+MADC=%d",batter_volts);
 						break;
         default:

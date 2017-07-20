@@ -1,5 +1,7 @@
 #include "nrf_drv_adc.h"
 #include "app_error.h"
+#include "nrf_log.h"
+#include "nrf_log_ctrl.h"
 
 static nrf_adc_value_t adc_buf[1];
 
@@ -30,7 +32,7 @@ static void adc_event_handler(nrf_drv_adc_evt_t const * p_event)
 			
 				batter_volts = batt_lvl_in_milli_volts;
 			
-			
+				NRF_LOG_INFO("adc %d\r\n",batter_volts);
                                  // DIODE_FWD_VOLT_DROP_MILLIVOLTS;
 				//printf("AT+BATVAL:%d\r\n",batt_lvl_in_milli_volts);
 				
