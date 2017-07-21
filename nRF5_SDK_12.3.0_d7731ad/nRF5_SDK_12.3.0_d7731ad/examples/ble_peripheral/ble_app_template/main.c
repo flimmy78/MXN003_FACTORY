@@ -91,8 +91,9 @@
 #include "ele_control.h"
 #include "voice_chip.h"
 
-
+#include "sensor_drv.h"
 #include <modem_2g.h>
+#include "ble_gap.h"
 
 #define __ATA_TEST_MODE__
 
@@ -149,6 +150,12 @@ static uint8_t index = 0;
 static uint8_t timer_start = 0;
 static void uart_timeout_handler(void * p_context);
 
+
+#define SCAN_INTERVAL           0x00A0                          /**< Determines scan interval in units of 0.625 millisecond. */
+#define SCAN_WINDOW             0x0050                          /**< Determines scan window in units of 0.625 millisecond. */
+#define SCAN_ACTIVE             1                               /**< If 1, performe active scanning (scan requests). */
+#define SCAN_SELECTIVE          0                               /**< If 1, ignore unknown devices (non whitelisted). */
+#define SCAN_TIMEOUT            0x0000                          /**< Timout when scanning. 0x0000 disables timeout. */
 
 /* YOUR_JOB: Declare all services structure your application is using
    static ble_xx_service_t                     m_xxs;
@@ -515,12 +522,20 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
  *
  * @param[in] p_ble_evt  Bluetooth stack event.
  */
+int8_t ble_rssi = 0;
 static void on_ble_evt(ble_evt_t * p_ble_evt)
 {
     uint32_t err_code = NRF_SUCCESS;
+		const ble_gap_evt_t * p_gap_evt = &p_ble_evt->evt.gap_evt;
 
     switch (p_ble_evt->header.evt_id)
     {
+				case BLE_GAP_EVT_ADV_REPORT:
+				{
+					 const ble_gap_evt_adv_report_t * p_adv_report = &p_gap_evt->params.adv_report;
+						NRF_LOG_INFO("\r\n RSSI:%d\r\n",p_adv_report->rssi);	
+						ble_rssi = p_adv_report->rssi;
+				}break;
         case BLE_GAP_EVT_DISCONNECTED:
             NRF_LOG_INFO("Disconnected.\r\n");
             err_code = bsp_indication_set(BSP_INDICATE_IDLE);
@@ -616,6 +631,8 @@ static void ble_evt_dispatch(ble_evt_t * p_ble_evt)
     bsp_btn_ble_on_ble_evt(p_ble_evt);
     on_ble_evt(p_ble_evt);
     ble_advertising_on_ble_evt(p_ble_evt);
+
+	
     /*YOUR_JOB add calls to _on_ble_evt functions from each service your application is using
        ble_xxs_on_ble_evt(&m_xxs, p_ble_evt);
        ble_yys_on_ble_evt(&m_yys, p_ble_evt);
@@ -850,8 +867,9 @@ static void uart_event_handle(app_uart_evt_t * p_event)
     {
         case APP_UART_DATA_READY:
             UNUSED_VARIABLE(app_uart_get(&data_array[index]));
+						//NRF_LOG_INFO("%c\r\n",data_array[index]);
             index++;
-						
+				
 						if(timer_start == 0){
 							app_timer_start(uart_timer_id, UART_IMTES_INTERVAL, NULL);
 							timer_start = 1;
@@ -951,7 +969,36 @@ void uart_init(void)
 //		}
 //		while (ch != '\n');
 //}
-#include "sensor_drv.h"
+
+/**@brief Function to start scanning.
+ */
+static const ble_gap_scan_params_t m_scan_params =
+{
+    .active   = 1,
+    .interval = SCAN_INTERVAL,
+    .window   = SCAN_WINDOW,
+    .timeout  = SCAN_TIMEOUT,
+    #if (NRF_SD_BLE_API_VERSION == 2)
+        .selective   = 0,
+        .p_whitelist = NULL,
+    #endif
+    #if (NRF_SD_BLE_API_VERSION == 3)
+        .use_whitelist = 0,
+    #endif
+};
+
+static void scan_start(void)
+{
+    ret_code_t ret;
+
+    ret = sd_ble_gap_scan_start(&m_scan_params);
+    APP_ERROR_CHECK(ret);
+
+    ret = bsp_indication_set(BSP_INDICATE_SCANNING);
+    APP_ERROR_CHECK(ret);
+}
+
+
 int main(void)
 {
     uint32_t err_code;
@@ -968,7 +1015,7 @@ int main(void)
 		modem_2g_open(MODME_CONTRL_PIN); //开机打开2G模块，进入测试
 		nrf_delay_ms(500);
 		uart_init();
-		sensor_status = sensor_type_auto_maching_init();
+		sensor_status = sensor_type_auto_maching_init(); //初始化gsensor
 		if(sensor_status != 1){
 			NRF_LOG_INFO("sensor error\r\n");
 		}else{
@@ -993,15 +1040,10 @@ int main(void)
     err_code = ble_advertising_start(BLE_ADV_MODE_FAST);
     APP_ERROR_CHECK(err_code);
     // Enter main loop.
-//		uint8_t buffer[512] = {0};
+		scan_start();
 		
     for (;;)
     {	
-//				#ifdef __ATA_TEST_MODE__
-//				memset(buffer, 0 , sizeof(buffer));
-//				uart_getline(buffer);
-//				NRF_LOG_INFO("x %s\r\n",(uint32_t)buffer);
-//				#endif
         if (NRF_LOG_PROCESS() == false)
         {
             power_manage();

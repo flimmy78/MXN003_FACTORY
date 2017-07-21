@@ -228,9 +228,12 @@ const custom_atcmd custom_cmd_table[ ] =
 	{"AT+MELECONTRL",custom_elecontrl_func},
 	{"AT+MVOCHIP",custom_vochip_func},
 	{"AT+MADC",custom_adc_func},
+	{"AT+MRSSI",custom_rssi_func},
 	//{"AT+MSENSOR",custom_sensor_func},
   {NULL, NULL}  // this lind should not be removed, it will be treat as 
 };
+#include "nrf_log.h"
+#include "nrf_log_ctrl.h"
 
 bool mt2503_custom_common_hdlr(char *full_cmd_string)
 {
@@ -241,7 +244,6 @@ bool mt2503_custom_common_hdlr(char *full_cmd_string)
 	uint16_t i;
 	custom_cmdLine command_line;
 	cmd_name = buffer;
-
 	length = strlen(full_cmd_string);
 	length = length > MAX_UART_LEN ? MAX_UART_LEN : length;  
 
