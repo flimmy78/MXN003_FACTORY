@@ -111,7 +111,7 @@
 
 #define DEVICE_NAME                     "MXN003F"                           			/**< Name of device. Will be included in the advertising data. */
 #define MANUFACTURER_NAME               "NordicSemiconductor"                       /**< Manufacturer. Will be passed to Device Information Service. */
-#define APP_ADV_INTERVAL                300                                         /**< The advertising interval (in units of 0.625 ms. This value corresponds to 187.5 ms). */
+#define APP_ADV_INTERVAL                180                                         /**< The advertising interval (in units of 0.625 ms. This value corresponds to 187.5 ms). */
 #define APP_ADV_TIMEOUT_IN_SECONDS      0                                         /**< The advertising timeout in units of seconds. */
 
 #define APP_TIMER_PRESCALER             0                                           /**< Value of the RTC1 PRESCALER register. */
@@ -163,7 +163,10 @@ static void uart_timeout_handler(void * p_context);
  */
 
 // YOUR_JOB: Use UUIDs for service(s) used in your application.
+#define BLE_UUID_DEVICE_TEST_SERVICE 0xFFA1
 static ble_uuid_t m_adv_uuids[] = {{BLE_UUID_DEVICE_INFORMATION_SERVICE, BLE_UUID_TYPE_BLE}}; /**< Universally unique service identifiers. */
+
+static ble_uuid_t find_uuids[] = {{BLE_UUID_DEVICE_TEST_SERVICE, BLE_UUID_TYPE_BLE}}; /**< Universally unique service identifiers. */
 
 static void advertising_start(void);
 
@@ -523,6 +526,7 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
  * @param[in] p_ble_evt  Bluetooth stack event.
  */
 int8_t ble_rssi = 0;
+int8_t rssi_status = 0;
 #define UUID16_SIZE             2                               /**< Size of 16 bit UUID */
 #define UUID32_SIZE             4                               /**< Size of 32 bit UUID */
 #define UUID128_SIZE            16                              /**< Size of 128 bit UUID */
@@ -612,7 +616,17 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
 				case BLE_GAP_EVT_ADV_REPORT:
 				{
 					 const ble_gap_evt_adv_report_t * p_adv_report = &p_gap_evt->params.adv_report;
-					 if (is_uuid_present(m_adv_uuids, p_adv_report)){
+					 if (is_uuid_present(find_uuids, p_adv_report)){
+//						printf("rssi = %d\r\n",p_adv_report->rssi);
+//						printf("Connecting to target %02x%02x%02x%02x%02x%02x\r\n",
+//                             p_adv_report->peer_addr.addr[0],
+//                             p_adv_report->peer_addr.addr[1],
+//                             p_adv_report->peer_addr.addr[2],
+//                             p_adv_report->peer_addr.addr[3],
+//                             p_adv_report->peer_addr.addr[4],
+//                             p_adv_report->peer_addr.addr[5]
+//                             );
+						rssi_status = 1;
 						ble_rssi = p_adv_report->rssi;
 					 }
 				}break;
@@ -877,7 +891,9 @@ static void advertising_init(void)
     advdata.include_appearance      = true;
     advdata.flags                   = BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE;
     advdata.uuids_complete.uuid_cnt = sizeof(m_adv_uuids) / sizeof(m_adv_uuids[0]);
-    advdata.uuids_complete.p_uuids  = m_adv_uuids;
+		advdata.uuids_complete.p_uuids  = m_adv_uuids;
+//		advdata.uuids_complete.uuid_cnt = sizeof(find_uuids) / sizeof(find_uuids[0]);
+//    advdata.uuids_complete.p_uuids  = find_uuids;
 
     memset(&options, 0, sizeof(options));
     options.ble_adv_fast_enabled  = true;

@@ -11,6 +11,7 @@
 #include "battery_adc.h"
 
 extern int8_t ble_rssi;
+extern int8_t rssi_status;
 custom_rsp_type_enum custom_sensor_func(custom_cmdLine *commandBuffer_p)
 {
     custom_cmd_mode_enum result;
@@ -133,7 +134,12 @@ custom_cmd_mode_enum result;
     switch (result)
     {
 				case CUSTOM_READ_MODE:
+					if(rssi_status == 1)
 						PutUARTBytes("AT+MRSSI=%d",ble_rssi);
+					else
+						PutUARTBytes("AT+MRSSI=NONE");
+
+					rssi_status = 0;
 						break;
         default:
             ret_value = CUSTOM_RSP_ERROR;
