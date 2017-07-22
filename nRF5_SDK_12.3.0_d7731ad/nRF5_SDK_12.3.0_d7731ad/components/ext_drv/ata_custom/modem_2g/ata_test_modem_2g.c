@@ -133,7 +133,6 @@ custom_cmd_mode_enum result;
     switch (result)
     {
 				case CUSTOM_READ_MODE:
-						
 						PutUARTBytes("AT+MRSSI=%d",ble_rssi);
 						break;
         default:
