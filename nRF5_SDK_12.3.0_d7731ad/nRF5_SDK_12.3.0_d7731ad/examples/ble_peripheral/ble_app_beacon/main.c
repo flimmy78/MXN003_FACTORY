@@ -57,6 +57,7 @@
 #include "app_timer.h"
 #include "nrf_log.h"
 #include "nrf_log_ctrl.h"
+#include "nrf_drv_adc.h"
 
 #define CENTRAL_LINK_COUNT              0                                 /**< Number of central links used by the application. When changing this number remember to adjust the RAM settings*/
 #define PERIPHERAL_LINK_COUNT           0                                 /**< Number of peripheral links used by the application. When changing this number remember to adjust the RAM settings*/
@@ -88,6 +89,24 @@
 #define UICR_ADDRESS                    0x10001080                        /**< Address of the UICR register used by this example. The major and minor versions to be encoded into the advertising data will be picked up from this location. */
 #endif
 
+APP_TIMER_DEF(battery_timer_id); 
+
+#define ADC_BUFFER_SIZE                 2               //Size of buffer for ADC samples. Buffer size should be multiple of number of adc channels located.
+
+#define APP_TIMER_PRESCALER             0                                           /**< Value of the RTC1 PRESCALER register. */
+#define APP_TIMER_OP_QUEUE_SIZE         4                                           /**< Size of timer operation queues. */
+#define BATTER_TIMER_INTERVAL           APP_TIMER_TICKS(10000, APP_TIMER_PRESCALER)    /**< Defines the interval between consecutive app timer interrupts in milliseconds. */
+
+static nrf_adc_value_t                  adc_buffer[ADC_BUFFER_SIZE];                /**< ADC buffer. */
+static uint8_t                          number_of_adc_channels;
+
+#define ADC_REF_VBG_VOLTAGE_IN_MILLIVOLTS 1200   
+#define ADC_RES_10BIT                     1024    
+#define ADC_INPUT_PRESCALER               3
+
+#define ADC_RESULT_IN_MILLI_VOLTS(ADC_VALUE)\
+			((((ADC_VALUE) * ADC_REF_VBG_VOLTAGE_IN_MILLIVOLTS) / ADC_RES_10BIT) * ADC_INPUT_PRESCALER)
+			
 static ble_gap_adv_params_t m_adv_params;                                 /**< Parameters to be passed to the stack when starting advertising. */
 static uint8_t m_beacon_info[APP_BEACON_INFO_LENGTH] =                    /**< Information advertised by the Beacon. */
 {
@@ -229,6 +248,102 @@ static void power_manage(void)
     APP_ERROR_CHECK(err_code);
 }
 
+/**
+ * @brief ADC interrupt handler.
+ */
+static void adc_event_handler(nrf_drv_adc_evt_t const * p_event)
+{
+		uint16_t        batt_lvl_in_milli_volts;
+		nrf_adc_value_t adc_result;
+	
+    if (p_event->type == NRF_DRV_ADC_EVT_DONE)
+    {
+		
+				uint32_t i;
+				for (i = 0; i < p_event->data.done.size; i++)
+				{
+						adc_result = p_event->data.done.p_buffer[i];
+						switch(i % number_of_adc_channels){
+							case 0:
+							break;
+						}
+						if(0 == (i % number_of_adc_channels)){
+							batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result) + 200;
+							NRF_LOG_INFO("main batter %d\r\n",batt_lvl_in_milli_volts);
+						}else{
+							batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);
+							NRF_LOG_INFO("sub batter %d\r\n",batt_lvl_in_milli_volts);
+						}
+						//NRF_LOG_INFO("ADC value channel %d: %d\r\n", (i % number_of_adc_channels), p_event->data.done.p_buffer[i]);
+				}
+				
+        APP_ERROR_CHECK(nrf_drv_adc_buffer_convert(adc_buffer,ADC_BUFFER_SIZE));
+    }
+
+}
+
+/**
+ * @brief ADC initialization.
+ */
+static void adc_config(void)
+{
+    ret_code_t ret_code;
+	
+    //Initialize ADC
+    nrf_drv_adc_config_t config = NRF_DRV_ADC_DEFAULT_CONFIG;
+    ret_code = nrf_drv_adc_init(&config, adc_event_handler);
+    APP_ERROR_CHECK(ret_code);
+	
+    //Configure and enable ADC channel 0
+    static nrf_drv_adc_channel_t m_channel_0_config = NRF_DRV_ADC_DEFAULT_CHANNEL(NRF_ADC_CONFIG_INPUT_7); 
+    m_channel_0_config.config.config.input = NRF_ADC_CONFIG_SCALING_SUPPLY_ONE_THIRD;
+    nrf_drv_adc_channel_enable(&m_channel_0_config);
+	
+    //Configure and enable ADC channel 1
+    static nrf_drv_adc_channel_t m_channel_1_config = NRF_DRV_ADC_DEFAULT_CHANNEL(NRF_ADC_CONFIG_INPUT_6); 
+    m_channel_1_config.config.config.input = NRF_ADC_CONFIG_SCALING_SUPPLY_ONE_THIRD;
+    nrf_drv_adc_channel_enable(&m_channel_1_config);
+	
+//    //Configure and enable ADC channel 2
+//    static nrf_drv_adc_channel_t m_channel_2_config = NRF_DRV_ADC_DEFAULT_CHANNEL(NRF_ADC_CONFIG_INPUT_7);	
+//    m_channel_2_config.config.config.input = NRF_ADC_CONFIG_SCALING_INPUT_ONE_THIRD;
+//    nrf_drv_adc_channel_enable(&m_channel_2_config);
+	
+    number_of_adc_channels = 2;    //Set equal to the number of configured ADC channels, for the sake of UART output.
+		APP_ERROR_CHECK(nrf_drv_adc_buffer_convert(adc_buffer,ADC_BUFFER_SIZE));
+
+}
+
+
+static void battery_timerout_handler(void * p_context)
+{
+    nrf_drv_adc_sample();
+}
+
+
+static void timers_init(void)
+{
+    uint32_t err_code;
+
+    // Initialize timer module.
+    APP_TIMER_INIT(APP_TIMER_PRESCALER, APP_TIMER_OP_QUEUE_SIZE, false);
+
+    // Create timers.
+    err_code = app_timer_create(&battery_timer_id,
+                                APP_TIMER_MODE_REPEATED,
+                                battery_timerout_handler);
+    APP_ERROR_CHECK(err_code);
+}
+
+static void application_timers_start(void)
+{
+    uint32_t err_code;
+
+    // Start application timers.
+    err_code = app_timer_start(battery_timer_id, BATTER_TIMER_INTERVAL, NULL);
+    APP_ERROR_CHECK(err_code);
+}
+
 
 /**
  * @brief Function for application main entry.
@@ -240,14 +355,17 @@ int main(void)
     err_code = NRF_LOG_INIT(NULL);
     APP_ERROR_CHECK(err_code);
 
-    APP_TIMER_INIT(APP_TIMER_PRESCALER, APP_TIMER_OP_QUEUE_SIZE, false);
-    err_code = bsp_init(BSP_INIT_LED, APP_TIMER_TICKS(100, APP_TIMER_PRESCALER), NULL);
-    APP_ERROR_CHECK(err_code);
+    //APP_TIMER_INIT(APP_TIMER_PRESCALER, APP_TIMER_OP_QUEUE_SIZE, false);
+    //err_code = bsp_init(BSP_INIT_LED, APP_TIMER_TICKS(100, APP_TIMER_PRESCALER), NULL);
+    //APP_ERROR_CHECK(err_code);
+		adc_config();
+		timers_init();
     ble_stack_init();
     advertising_init();
 
     // Start execution.
     NRF_LOG_INFO("BLE Beacon started\r\n");
+		application_timers_start();
     advertising_start();
 
     // Enter main loop.
