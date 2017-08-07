@@ -95,14 +95,14 @@ APP_TIMER_DEF(battery_timer_id);
 
 #define APP_TIMER_PRESCALER             0                                           /**< Value of the RTC1 PRESCALER register. */
 #define APP_TIMER_OP_QUEUE_SIZE         4                                           /**< Size of timer operation queues. */
-#define BATTER_TIMER_INTERVAL           APP_TIMER_TICKS(10000, APP_TIMER_PRESCALER)    /**< Defines the interval between consecutive app timer interrupts in milliseconds. */
+#define BATTER_TIMER_INTERVAL           APP_TIMER_TICKS(2000, APP_TIMER_PRESCALER)    /**< Defines the interval between consecutive app timer interrupts in milliseconds. */
 
 static nrf_adc_value_t                  adc_buffer[ADC_BUFFER_SIZE];                /**< ADC buffer. */
 static uint8_t                          number_of_adc_channels;
 
 #define ADC_REF_VBG_VOLTAGE_IN_MILLIVOLTS 1200   
-#define ADC_RES_10BIT                     1024    
-#define ADC_INPUT_PRESCALER               3
+#define ADC_RES_10BIT                     1023    
+#define ADC_INPUT_PRESCALER               1
 
 #define ADC_RESULT_IN_MILLI_VOLTS(ADC_VALUE)\
 			((((ADC_VALUE) * ADC_REF_VBG_VOLTAGE_IN_MILLIVOLTS) / ADC_RES_10BIT) * ADC_INPUT_PRESCALER)
@@ -258,23 +258,26 @@ static void adc_event_handler(nrf_drv_adc_evt_t const * p_event)
 	
     if (p_event->type == NRF_DRV_ADC_EVT_DONE)
     {
-		
 				uint32_t i;
 				for (i = 0; i < p_event->data.done.size; i++)
 				{
 						adc_result = p_event->data.done.p_buffer[i];
-						switch(i % number_of_adc_channels){
-							case 0:
-							break;
-						}
 						if(0 == (i % number_of_adc_channels)){
-							batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result) + 200;
+							batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);
+							batt_lvl_in_milli_volts = batt_lvl_in_milli_volts * 122 / 22 + 30;
 							NRF_LOG_INFO("main batter %d\r\n",batt_lvl_in_milli_volts);
+//							if(batt_lvl_in_milli_volts < 2300){
+//								nrf_gpio_pin_write(20,0);
+//							}
+//							else if(batt_lvl_in_milli_volts > 2400){
+//								nrf_gpio_pin_write(20,1);
+//							}
 						}else{
 							batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);
+							batt_lvl_in_milli_volts = batt_lvl_in_milli_volts * 122 / 22 + 40;
 							NRF_LOG_INFO("sub batter %d\r\n",batt_lvl_in_milli_volts);
 						}
-						//NRF_LOG_INFO("ADC value channel %d: %d\r\n", (i % number_of_adc_channels), p_event->data.done.p_buffer[i]);
+					//	NRF_LOG_INFO("ADC value channel %d: %d\r\n", (i % number_of_adc_channels), p_event->data.done.p_buffer[i]);
 				}
 				
         APP_ERROR_CHECK(nrf_drv_adc_buffer_convert(adc_buffer,ADC_BUFFER_SIZE));
@@ -296,12 +299,12 @@ static void adc_config(void)
 	
     //Configure and enable ADC channel 0
     static nrf_drv_adc_channel_t m_channel_0_config = NRF_DRV_ADC_DEFAULT_CHANNEL(NRF_ADC_CONFIG_INPUT_7); 
-    m_channel_0_config.config.config.input = NRF_ADC_CONFIG_SCALING_SUPPLY_ONE_THIRD;
+    m_channel_0_config.config.config.input = NRF_ADC_CONFIG_SCALING_INPUT_FULL_SCALE;
     nrf_drv_adc_channel_enable(&m_channel_0_config);
 	
     //Configure and enable ADC channel 1
     static nrf_drv_adc_channel_t m_channel_1_config = NRF_DRV_ADC_DEFAULT_CHANNEL(NRF_ADC_CONFIG_INPUT_6); 
-    m_channel_1_config.config.config.input = NRF_ADC_CONFIG_SCALING_SUPPLY_ONE_THIRD;
+    m_channel_1_config.config.config.input = NRF_ADC_CONFIG_SCALING_INPUT_FULL_SCALE;
     nrf_drv_adc_channel_enable(&m_channel_1_config);
 	
 //    //Configure and enable ADC channel 2
@@ -358,6 +361,9 @@ int main(void)
     //APP_TIMER_INIT(APP_TIMER_PRESCALER, APP_TIMER_OP_QUEUE_SIZE, false);
     //err_code = bsp_init(BSP_INIT_LED, APP_TIMER_TICKS(100, APP_TIMER_PRESCALER), NULL);
     //APP_ERROR_CHECK(err_code);
+		nrf_gpio_cfg_output(20);
+		nrf_gpio_pin_write(20,1);
+		
 		adc_config();
 		timers_init();
     ble_stack_init();
