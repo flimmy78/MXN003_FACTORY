@@ -58,6 +58,7 @@
 #include "nrf_log.h"
 #include "nrf_log_ctrl.h"
 #include "nrf_drv_adc.h"
+#include "app_pwm.h"
 
 #define CENTRAL_LINK_COUNT              0                                 /**< Number of central links used by the application. When changing this number remember to adjust the RAM settings*/
 #define PERIPHERAL_LINK_COUNT           0                                 /**< Number of peripheral links used by the application. When changing this number remember to adjust the RAM settings*/
@@ -65,7 +66,7 @@
 #define IS_SRVC_CHANGED_CHARACT_PRESENT 0                                 /**< Include or not the service_changed characteristic. if not enabled, the server's database cannot be changed for the lifetime of the device*/
 
 #define APP_CFG_NON_CONN_ADV_TIMEOUT    0                                 /**< Time for which the device must be advertising in non-connectable mode (in seconds). 0 disables timeout. */
-#define NON_CONNECTABLE_ADV_INTERVAL    MSEC_TO_UNITS(100, UNIT_0_625_MS) /**< The advertising interval for non-connectable advertisement (100 ms). This value can vary between 100ms to 10.24s). */
+#define NON_CONNECTABLE_ADV_INTERVAL    MSEC_TO_UNITS(640, UNIT_0_625_MS) /**< The advertising interval for non-connectable advertisement (100 ms). This value can vary between 100ms to 10.24s). */
 
 #define APP_BEACON_INFO_LENGTH          0x17                              /**< Total length of information advertised by the Beacon. */
 #define APP_ADV_DATA_LENGTH             0x15                              /**< Length of manufacturer specific data in the advertisement. */
@@ -90,12 +91,14 @@
 #endif
 
 APP_TIMER_DEF(battery_timer_id); 
+APP_TIMER_DEF(led_timer_id); 
 
 #define ADC_BUFFER_SIZE                 2               //Size of buffer for ADC samples. Buffer size should be multiple of number of adc channels located.
 
 #define APP_TIMER_PRESCALER             0                                           /**< Value of the RTC1 PRESCALER register. */
 #define APP_TIMER_OP_QUEUE_SIZE         4                                           /**< Size of timer operation queues. */
 #define BATTER_TIMER_INTERVAL           APP_TIMER_TICKS(2000, APP_TIMER_PRESCALER)    /**< Defines the interval between consecutive app timer interrupts in milliseconds. */
+#define LED_TIMER_INTERVAL           		APP_TIMER_TICKS(500, APP_TIMER_PRESCALER)
 
 static nrf_adc_value_t                  adc_buffer[ADC_BUFFER_SIZE];                /**< ADC buffer. */
 static uint8_t                          number_of_adc_channels;
@@ -103,6 +106,9 @@ static uint8_t                          number_of_adc_channels;
 #define ADC_REF_VBG_VOLTAGE_IN_MILLIVOLTS 1200   
 #define ADC_RES_10BIT                     1023    
 #define ADC_INPUT_PRESCALER               1
+
+APP_PWM_INSTANCE(PWM1,1);                   // Create the instance "PWM1" using TIMER1.
+#define LED_PIN   8
 
 #define ADC_RESULT_IN_MILLI_VOLTS(ADC_VALUE)\
 			((((ADC_VALUE) * ADC_REF_VBG_VOLTAGE_IN_MILLIVOLTS) / ADC_RES_10BIT) * ADC_INPUT_PRESCALER)
@@ -266,12 +272,12 @@ static void adc_event_handler(nrf_drv_adc_evt_t const * p_event)
 							batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);
 							batt_lvl_in_milli_volts = batt_lvl_in_milli_volts * 122 / 22 + 30;
 							NRF_LOG_INFO("main batter %d\r\n",batt_lvl_in_milli_volts);
-//							if(batt_lvl_in_milli_volts < 2300){
-//								nrf_gpio_pin_write(20,0);
-//							}
-//							else if(batt_lvl_in_milli_volts > 2400){
-//								nrf_gpio_pin_write(20,1);
-//							}
+							if(batt_lvl_in_milli_volts < 2300){
+								nrf_gpio_pin_write(20,0);
+							}
+							else if(batt_lvl_in_milli_volts > 2400){
+								nrf_gpio_pin_write(20,1);
+							}
 						}else{
 							batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);
 							batt_lvl_in_milli_volts = batt_lvl_in_milli_volts * 122 / 22 + 40;
@@ -307,8 +313,8 @@ static void adc_config(void)
     m_channel_1_config.config.config.input = NRF_ADC_CONFIG_SCALING_INPUT_FULL_SCALE;
     nrf_drv_adc_channel_enable(&m_channel_1_config);
 	
-//    //Configure and enable ADC channel 2
-//    static nrf_drv_adc_channel_t m_channel_2_config = NRF_DRV_ADC_DEFAULT_CHANNEL(NRF_ADC_CONFIG_INPUT_7);	
+    //Configure and enable ADC channel 2
+//    static nrf_drv_adc_channel_t m_channel_2_config = NRF_DRV_ADC_DEFAULT_CHANNEL(NRF_ADC_CONFIG_INPUT_DISABLED);	
 //    m_channel_2_config.config.config.input = NRF_ADC_CONFIG_SCALING_INPUT_ONE_THIRD;
 //    nrf_drv_adc_channel_enable(&m_channel_2_config);
 	
@@ -323,6 +329,12 @@ static void battery_timerout_handler(void * p_context)
     nrf_drv_adc_sample();
 }
 
+static void led_timerout_handler(void * p_context)
+{
+    nrf_gpio_pin_toggle(8);
+}
+
+
 
 static void timers_init(void)
 {
@@ -336,6 +348,12 @@ static void timers_init(void)
                                 APP_TIMER_MODE_REPEATED,
                                 battery_timerout_handler);
     APP_ERROR_CHECK(err_code);
+	
+	  err_code = app_timer_create(&led_timer_id,
+                                APP_TIMER_MODE_REPEATED,
+                                led_timerout_handler);
+    APP_ERROR_CHECK(err_code);
+	
 }
 
 static void application_timers_start(void)
@@ -345,15 +363,29 @@ static void application_timers_start(void)
     // Start application timers.
     err_code = app_timer_start(battery_timer_id, BATTER_TIMER_INTERVAL, NULL);
     APP_ERROR_CHECK(err_code);
+	
+//	  err_code = app_timer_start(led_timer_id, LED_TIMER_INTERVAL, NULL);
+//    APP_ERROR_CHECK(err_code);
+}
+
+
+static volatile bool ready_flag;            // A flag indicating PWM status.
+
+void pwm_ready_callback(uint32_t pwm_id)    // PWM callback function
+{
+    ready_flag = true;
 }
 
 
 /**
  * @brief Function for application main entry.
  */
+#include "nrf_delay.h"
+
 int main(void)
 {
     uint32_t err_code;
+		uint32_t value;
     // Initialize.
     err_code = NRF_LOG_INIT(NULL);
     APP_ERROR_CHECK(err_code);
@@ -362,8 +394,26 @@ int main(void)
     //err_code = bsp_init(BSP_INIT_LED, APP_TIMER_TICKS(100, APP_TIMER_PRESCALER), NULL);
     //APP_ERROR_CHECK(err_code);
 		nrf_gpio_cfg_output(20);
-		nrf_gpio_pin_write(20,1);
+		nrf_gpio_pin_write(20,1);	
+	
+//		nrf_gpio_cfg_output(8);
+//		nrf_gpio_pin_write(8,0);	
+	
+	 /* 1-channel PWM, 200Hz*/
+    app_pwm_config_t pwm1_cfg = APP_PWM_DEFAULT_CONFIG_1CH(5000L, LED_PIN);
+	/* Switch the polarity of the second channel. */
+    pwm1_cfg.pin_polarity[1] = APP_PWM_POLARITY_ACTIVE_HIGH;//APP_PWM_POLARITY_ACTIVE_HIGH;
+	
+		err_code = app_pwm_init(&PWM1,&pwm1_cfg,pwm_ready_callback);
+    APP_ERROR_CHECK(err_code);
+    app_pwm_enable(&PWM1);
+	
 		
+		 ready_flag = false;
+		 while (app_pwm_channel_duty_set(&PWM1, 0, 10) == NRF_ERROR_BUSY);
+		 while (!ready_flag);
+            APP_ERROR_CHECK(app_pwm_channel_duty_set(&PWM1, 1, 10));
+		 
 		adc_config();
 		timers_init();
     ble_stack_init();
@@ -377,6 +427,20 @@ int main(void)
     // Enter main loop.
     for (;; )
     {
+//        for (uint8_t i = 0; i < 40; ++i)
+//        {
+//            value = (i < 20) ? (i * 5) : (100 - (i - 20) * 5);
+
+//            ready_flag = false;
+//            /* Set the duty cycle - keep trying until PWM is ready... */
+//            while (app_pwm_channel_duty_set(&PWM1, 0, value) == NRF_ERROR_BUSY);
+
+//            /* ... or wait for callback. */
+//            while (!ready_flag);
+//            APP_ERROR_CHECK(app_pwm_channel_duty_set(&PWM1, 1, value));
+//            nrf_delay_ms(25);
+//        }
+				
         if (NRF_LOG_PROCESS() == false)
         {
             power_manage();
