@@ -380,8 +380,6 @@ void pwm_ready_callback(uint32_t pwm_id)    // PWM callback function
 /**
  * @brief Function for application main entry.
  */
-#include "nrf_delay.h"
-
 int main(void)
 {
     uint32_t err_code;
@@ -396,11 +394,8 @@ int main(void)
 		nrf_gpio_cfg_output(20);
 		nrf_gpio_pin_write(20,1);	
 	
-//		nrf_gpio_cfg_output(8);
-//		nrf_gpio_pin_write(8,0);	
-	
 	 /* 1-channel PWM, 200Hz*/
-    app_pwm_config_t pwm1_cfg = APP_PWM_DEFAULT_CONFIG_1CH(5000L, LED_PIN);
+    app_pwm_config_t pwm1_cfg = APP_PWM_DEFAULT_CONFIG_1CH(5000000L, LED_PIN);
 	/* Switch the polarity of the second channel. */
     pwm1_cfg.pin_polarity[1] = APP_PWM_POLARITY_ACTIVE_HIGH;//APP_PWM_POLARITY_ACTIVE_HIGH;
 	
@@ -409,15 +404,15 @@ int main(void)
     app_pwm_enable(&PWM1);
 	
 		
-		 ready_flag = false;
-		 while (app_pwm_channel_duty_set(&PWM1, 0, 10) == NRF_ERROR_BUSY);
-		 while (!ready_flag);
-            APP_ERROR_CHECK(app_pwm_channel_duty_set(&PWM1, 1, 10));
+		ready_flag = false;
+		while (app_pwm_channel_duty_set(&PWM1, 0, 50) == NRF_ERROR_BUSY);
+		while (!ready_flag);
+					APP_ERROR_CHECK(app_pwm_channel_duty_set(&PWM1, 1, 40));
 		 
 		adc_config();
 		timers_init();
-    ble_stack_init();
-    advertising_init();
+		ble_stack_init();
+		advertising_init();
 
     // Start execution.
     NRF_LOG_INFO("BLE Beacon started\r\n");
