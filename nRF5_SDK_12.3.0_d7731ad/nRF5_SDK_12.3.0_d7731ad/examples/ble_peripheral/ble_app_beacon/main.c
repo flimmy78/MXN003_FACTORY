@@ -59,6 +59,7 @@
 #include "nrf_log_ctrl.h"
 #include "nrf_drv_adc.h"
 #include "app_pwm.h"
+#include "nrf_delay.h"
 
 #define CENTRAL_LINK_COUNT              0                                 /**< Number of central links used by the application. When changing this number remember to adjust the RAM settings*/
 #define PERIPHERAL_LINK_COUNT           0                                 /**< Number of peripheral links used by the application. When changing this number remember to adjust the RAM settings*/
@@ -91,14 +92,16 @@
 #endif
 
 APP_TIMER_DEF(battery_timer_id); 
-APP_TIMER_DEF(led_timer_id); 
+APP_TIMER_DEF(led_on_timer_id); 
+APP_TIMER_DEF(led_off_timer_id); 
 
 #define ADC_BUFFER_SIZE                 2               //Size of buffer for ADC samples. Buffer size should be multiple of number of adc channels located.
 
 #define APP_TIMER_PRESCALER             0                                           /**< Value of the RTC1 PRESCALER register. */
 #define APP_TIMER_OP_QUEUE_SIZE         4                                           /**< Size of timer operation queues. */
 #define BATTER_TIMER_INTERVAL           APP_TIMER_TICKS(2000, APP_TIMER_PRESCALER)    /**< Defines the interval between consecutive app timer interrupts in milliseconds. */
-#define LED_TIMER_INTERVAL           		APP_TIMER_TICKS(500, APP_TIMER_PRESCALER)
+#define LED_ON_TIMER_INTERVAL           APP_TIMER_TICKS(2000, APP_TIMER_PRESCALER)
+#define LED_OFF_TIMER_INTERVAL          APP_TIMER_TICKS(50000, APP_TIMER_PRESCALER)
 
 static nrf_adc_value_t                  adc_buffer[ADC_BUFFER_SIZE];                /**< ADC buffer. */
 static uint8_t                          number_of_adc_channels;
@@ -108,7 +111,7 @@ static uint8_t                          number_of_adc_channels;
 #define ADC_INPUT_PRESCALER               1
 
 APP_PWM_INSTANCE(PWM1,1);                   // Create the instance "PWM1" using TIMER1.
-#define LED_PIN   8
+#define LED_PIN   21
 
 #define ADC_RESULT_IN_MILLI_VOLTS(ADC_VALUE)\
 			((((ADC_VALUE) * ADC_REF_VBG_VOLTAGE_IN_MILLIVOLTS) / ADC_RES_10BIT) * ADC_INPUT_PRESCALER)
@@ -329,9 +332,26 @@ static void battery_timerout_handler(void * p_context)
     nrf_drv_adc_sample();
 }
 
+static void led_off_timerout_handler(void * p_context)
+{
+		//	app_timer_stop(led_on_timer_id);
+			app_timer_stop(led_off_timer_id);
+}
+
 static void led_timerout_handler(void * p_context)
 {
-    nrf_gpio_pin_toggle(8);
+			nrf_gpio_pin_write(LED_PIN,1);
+			nrf_delay_ms(200);
+			nrf_gpio_pin_write(LED_PIN,0);
+//		if(nrf_gpio_pin_read(21) == 1){
+//			 app_timer_stop(led_on_timer_id);
+//			 app_timer_start(led_off_timer_id, LED_OFF_TIMER_INTERVAL, NULL);
+//		}else{
+//			 app_timer_stop(led_off_timer_id);
+//			 app_timer_start(led_on_timer_id, LED_ON_TIMER_INTERVAL, NULL);
+//		}
+//    nrf_gpio_pin_toggle(LED_PIN);
+		
 }
 
 
@@ -349,9 +369,14 @@ static void timers_init(void)
                                 battery_timerout_handler);
     APP_ERROR_CHECK(err_code);
 	
-	  err_code = app_timer_create(&led_timer_id,
+	  err_code = app_timer_create(&led_on_timer_id,
                                 APP_TIMER_MODE_REPEATED,
                                 led_timerout_handler);
+    APP_ERROR_CHECK(err_code);
+	
+		err_code = app_timer_create(&led_off_timer_id,
+                                APP_TIMER_MODE_REPEATED,
+                                led_off_timerout_handler);
     APP_ERROR_CHECK(err_code);
 	
 }
@@ -364,8 +389,11 @@ static void application_timers_start(void)
     err_code = app_timer_start(battery_timer_id, BATTER_TIMER_INTERVAL, NULL);
     APP_ERROR_CHECK(err_code);
 	
-//	  err_code = app_timer_start(led_timer_id, LED_TIMER_INTERVAL, NULL);
-//    APP_ERROR_CHECK(err_code);
+	  err_code = app_timer_start(led_on_timer_id, LED_ON_TIMER_INTERVAL, NULL);
+    APP_ERROR_CHECK(err_code);
+	
+		err_code = app_timer_start(led_off_timer_id, LED_OFF_TIMER_INTERVAL, NULL);
+    APP_ERROR_CHECK(err_code);
 }
 
 
@@ -383,7 +411,6 @@ void pwm_ready_callback(uint32_t pwm_id)    // PWM callback function
 int main(void)
 {
     uint32_t err_code;
-		uint32_t value;
     // Initialize.
     err_code = NRF_LOG_INIT(NULL);
     APP_ERROR_CHECK(err_code);
@@ -394,20 +421,23 @@ int main(void)
 		nrf_gpio_cfg_output(20);
 		nrf_gpio_pin_write(20,1);	
 	
-	 /* 1-channel PWM, 200Hz*/
-    app_pwm_config_t pwm1_cfg = APP_PWM_DEFAULT_CONFIG_1CH(5000000L, LED_PIN);
-	/* Switch the polarity of the second channel. */
-    pwm1_cfg.pin_polarity[1] = APP_PWM_POLARITY_ACTIVE_HIGH;//APP_PWM_POLARITY_ACTIVE_HIGH;
-	
-		err_code = app_pwm_init(&PWM1,&pwm1_cfg,pwm_ready_callback);
-    APP_ERROR_CHECK(err_code);
-    app_pwm_enable(&PWM1);
-	
-		
-		ready_flag = false;
-		while (app_pwm_channel_duty_set(&PWM1, 0, 50) == NRF_ERROR_BUSY);
-		while (!ready_flag);
-					APP_ERROR_CHECK(app_pwm_channel_duty_set(&PWM1, 1, 40));
+		nrf_gpio_cfg_output(LED_PIN);
+		nrf_gpio_pin_write(LED_PIN,0);	
+//	 /* 1-channel PWM, 200Hz*/
+//    app_pwm_config_t pwm1_cfg = APP_PWM_DEFAULT_CONFIG_1CH(90000000L, LED_PIN);
+//	/* Switch the polarity of the second channel. */
+//    pwm1_cfg.pin_polarity[1] = APP_PWM_POLARITY_ACTIVE_HIGH;//APP_PWM_POLARITY_ACTIVE_HIGH;
+//	
+//		err_code = app_pwm_init(&PWM1,&pwm1_cfg,pwm_ready_callback);
+//    APP_ERROR_CHECK(err_code);
+//    app_pwm_enable(&PWM1);
+//	
+//		ready_flag = false;
+//		while (app_pwm_channel_duty_set(&PWM1, 0, 90) == NRF_ERROR_BUSY);
+//		while (!ready_flag);
+//					APP_ERROR_CHECK(app_pwm_channel_duty_set(&PWM1, 1, 90));
+					
+		//app_pwm_uninit(&PWM1);
 		 
 		adc_config();
 		timers_init();
@@ -421,21 +451,7 @@ int main(void)
 
     // Enter main loop.
     for (;; )
-    {
-//        for (uint8_t i = 0; i < 40; ++i)
-//        {
-//            value = (i < 20) ? (i * 5) : (100 - (i - 20) * 5);
-
-//            ready_flag = false;
-//            /* Set the duty cycle - keep trying until PWM is ready... */
-//            while (app_pwm_channel_duty_set(&PWM1, 0, value) == NRF_ERROR_BUSY);
-
-//            /* ... or wait for callback. */
-//            while (!ready_flag);
-//            APP_ERROR_CHECK(app_pwm_channel_duty_set(&PWM1, 1, value));
-//            nrf_delay_ms(25);
-//        }
-				
+    {	
         if (NRF_LOG_PROCESS() == false)
         {
             power_manage();
