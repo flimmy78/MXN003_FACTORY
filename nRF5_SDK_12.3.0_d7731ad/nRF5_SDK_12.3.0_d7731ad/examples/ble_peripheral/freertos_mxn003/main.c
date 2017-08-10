@@ -57,6 +57,7 @@
 #include "ble_srv_common.h"
 #include "ble_advdata.h"
 #include "ble_advertising.h"
+#include "ble_nus.h"
 #include "ble_bas.h"
 #include "ble_dis.h"
 #include "ble_conn_params.h"
@@ -279,17 +280,7 @@ static void battery_level_update(void)
     uint32_t err_code;
     uint8_t  battery_level;
 
-    battery_level = 100; //(uint8_t)sensorsim_measure(&m_battery_sim_state, &m_battery_sim_cfg);
-		/*test  001*/
-		static int i = 0;
-		if(i <= 100){
-			battery_level = i;
-			i = i + 1;
-		}else{
-			battery_level = 100;
-			i = 0;
-		}
-		/*end*/
+    battery_level = 98; //(uint8_t)sensorsim_measure(&m_battery_sim_state, &m_battery_sim_cfg);
 
     err_code = ble_bas_battery_level_update(&m_bas, battery_level);
     if ((err_code != NRF_SUCCESS) &&

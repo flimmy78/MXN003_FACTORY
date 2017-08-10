@@ -111,7 +111,7 @@ static uint8_t                          number_of_adc_channels;
 #define ADC_INPUT_PRESCALER               1
 
 APP_PWM_INSTANCE(PWM1,1);                   // Create the instance "PWM1" using TIMER1.
-#define LED_PIN   21
+#define LED_PIN   8
 
 #define ADC_RESULT_IN_MILLI_VOLTS(ADC_VALUE)\
 			((((ADC_VALUE) * ADC_REF_VBG_VOLTAGE_IN_MILLIVOLTS) / ADC_RES_10BIT) * ADC_INPUT_PRESCALER)
