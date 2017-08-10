@@ -89,10 +89,10 @@
 #define CENTRAL_LINK_COUNT               0                                /**< Number of central links used by the application. When changing this number remember to adjust the RAM settings*/
 #define PERIPHERAL_LINK_COUNT            1                                /**< Number of peripheral links used by the application. When changing this number remember to adjust the RAM settings*/
 
-#define DEVICE_NAME                      "Nordic_HRM"                     /**< Name of device. Will be included in the advertising data. */
-#define MANUFACTURER_NAME                "NordicSemiconductor"            /**< Manufacturer. Will be passed to Device Information Service. */
+#define DEVICE_NAME                      "MXN003"                     /**< Name of device. Will be included in the advertising data. */
+#define MANUFACTURER_NAME                "V00.00"           				 /**< Manufacturer. Will be passed to Device Information Service. */
 #define APP_ADV_INTERVAL                 300                              /**< The advertising interval (in units of 0.625 ms. This value corresponds to 187.5 ms). */
-#define APP_ADV_TIMEOUT_IN_SECONDS       180                              /**< The advertising time-out in units of seconds. */
+#define APP_ADV_TIMEOUT_IN_SECONDS       0                              /**< The advertising time-out in units of seconds. */
 
 #define APP_TIMER_PRESCALER              0                                /**< Value of the RTC1 PRESCALER register. */
 #define APP_TIMER_OP_QUEUE_SIZE          4                                /**< Size of timer operation queues. */
@@ -153,7 +153,7 @@ static sensorsim_state_t m_rr_interval_sim_state;         /**< RR Interval senso
 
 static ble_uuid_t m_adv_uuids[] =                         /**< Universally unique service identifiers. */
 {
-    {BLE_UUID_HEART_RATE_SERVICE, BLE_UUID_TYPE_BLE},
+    //{BLE_UUID_HEART_RATE_SERVICE, BLE_UUID_TYPE_BLE},
     {BLE_UUID_BATTERY_SERVICE, BLE_UUID_TYPE_BLE},
     {BLE_UUID_DEVICE_INFORMATION_SERVICE, BLE_UUID_TYPE_BLE}
 };
@@ -296,7 +296,18 @@ static void battery_level_update(void)
     uint32_t err_code;
     uint8_t  battery_level;
 
-    battery_level = (uint8_t)sensorsim_measure(&m_battery_sim_state, &m_battery_sim_cfg);
+    battery_level = 100; //(uint8_t)sensorsim_measure(&m_battery_sim_state, &m_battery_sim_cfg);
+		/*test  001*/
+		static int i = 0;
+		if(i <= 100){
+			battery_level = i;
+			i = i + 1;
+		}else{
+			battery_level = 100;
+			i = 0;
+		}
+		
+		/*end*/
 
     err_code = ble_bas_battery_level_update(&m_bas, battery_level);
     if ((err_code != NRF_SUCCESS) &&
@@ -406,15 +417,16 @@ static void sensor_contact_detected_timeout_handler(TimerHandle_t xTimer)
  */
 static void timers_init(void)
 {
+
     // Initialize timer module.
     APP_TIMER_INIT(APP_TIMER_PRESCALER, APP_TIMER_OP_QUEUE_SIZE, false);
-
     // Create timers.
     m_battery_timer = xTimerCreate("BATT",
                                    BATTERY_LEVEL_MEAS_INTERVAL,
                                    pdTRUE,
                                    NULL,
                                    battery_level_meas_timeout_handler);
+	#if 0
     m_heart_rate_timer = xTimerCreate("HRT",
                                       HEART_RATE_MEAS_INTERVAL,
                                       pdTRUE,
@@ -439,6 +451,7 @@ static void timers_init(void)
     {
         APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
     }
+		#endif
 }
 
 
@@ -459,9 +472,10 @@ static void gap_params_init(void)
                                           (const uint8_t *)DEVICE_NAME,
                                           strlen(DEVICE_NAME));
     APP_ERROR_CHECK(err_code);
-
+		/*
     err_code = sd_ble_gap_appearance_set(BLE_APPEARANCE_HEART_RATE_SENSOR_HEART_RATE_BELT);
     APP_ERROR_CHECK(err_code);
+		*/
 
     memset(&gap_conn_params, 0, sizeof(gap_conn_params));
 
@@ -482,30 +496,30 @@ static void gap_params_init(void)
 static void services_init(void)
 {
     uint32_t       err_code;
-    ble_hrs_init_t hrs_init;
+//    ble_hrs_init_t hrs_init;
     ble_bas_init_t bas_init;
     ble_dis_init_t dis_init;
-    uint8_t        body_sensor_location;
+//    uint8_t        body_sensor_location;
 
     // Initialize Heart Rate Service.
-    body_sensor_location = BLE_HRS_BODY_SENSOR_LOCATION_FINGER;
+//    body_sensor_location = BLE_HRS_BODY_SENSOR_LOCATION_FINGER;
 
-    memset(&hrs_init, 0, sizeof(hrs_init));
+//    memset(&hrs_init, 0, sizeof(hrs_init));
 
-    hrs_init.evt_handler                 = NULL;
-    hrs_init.is_sensor_contact_supported = true;
-    hrs_init.p_body_sensor_location      = &body_sensor_location;
+//    hrs_init.evt_handler                 = NULL;
+//    hrs_init.is_sensor_contact_supported = true;
+//    hrs_init.p_body_sensor_location      = &body_sensor_location;
 
-    // Here the sec level for the Heart Rate Service can be changed/increased.
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&hrs_init.hrs_hrm_attr_md.cccd_write_perm);
-    BLE_GAP_CONN_SEC_MODE_SET_NO_ACCESS(&hrs_init.hrs_hrm_attr_md.read_perm);
-    BLE_GAP_CONN_SEC_MODE_SET_NO_ACCESS(&hrs_init.hrs_hrm_attr_md.write_perm);
+//    // Here the sec level for the Heart Rate Service can be changed/increased.
+//    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&hrs_init.hrs_hrm_attr_md.cccd_write_perm);
+//    BLE_GAP_CONN_SEC_MODE_SET_NO_ACCESS(&hrs_init.hrs_hrm_attr_md.read_perm);
+//    BLE_GAP_CONN_SEC_MODE_SET_NO_ACCESS(&hrs_init.hrs_hrm_attr_md.write_perm);
 
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&hrs_init.hrs_bsl_attr_md.read_perm);
-    BLE_GAP_CONN_SEC_MODE_SET_NO_ACCESS(&hrs_init.hrs_bsl_attr_md.write_perm);
+//    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&hrs_init.hrs_bsl_attr_md.read_perm);
+//    BLE_GAP_CONN_SEC_MODE_SET_NO_ACCESS(&hrs_init.hrs_bsl_attr_md.write_perm);
 
-    err_code = ble_hrs_init(&m_hrs, &hrs_init);
-    APP_ERROR_CHECK(err_code);
+//    err_code = ble_hrs_init(&m_hrs, &hrs_init);
+//    APP_ERROR_CHECK(err_code);
 
     // Initialize Battery Service.
     memset(&bas_init, 0, sizeof(bas_init));
@@ -538,33 +552,6 @@ static void services_init(void)
 }
 
 
-/**@brief Function for initializing the sensor simulators.
- */
-static void sensor_simulator_init(void)
-{
-    m_battery_sim_cfg.min          = MIN_BATTERY_LEVEL;
-    m_battery_sim_cfg.max          = MAX_BATTERY_LEVEL;
-    m_battery_sim_cfg.incr         = BATTERY_LEVEL_INCREMENT;
-    m_battery_sim_cfg.start_at_max = true;
-
-    sensorsim_init(&m_battery_sim_state, &m_battery_sim_cfg);
-
-    m_heart_rate_sim_cfg.min          = MIN_HEART_RATE;
-    m_heart_rate_sim_cfg.max          = MAX_HEART_RATE;
-    m_heart_rate_sim_cfg.incr         = HEART_RATE_INCREMENT;
-    m_heart_rate_sim_cfg.start_at_max = false;
-
-    sensorsim_init(&m_heart_rate_sim_state, &m_heart_rate_sim_cfg);
-
-    m_rr_interval_sim_cfg.min          = MIN_RR_INTERVAL;
-    m_rr_interval_sim_cfg.max          = MAX_RR_INTERVAL;
-    m_rr_interval_sim_cfg.incr         = RR_INTERVAL_INCREMENT;
-    m_rr_interval_sim_cfg.start_at_max = false;
-
-    sensorsim_init(&m_rr_interval_sim_state, &m_rr_interval_sim_cfg);
-}
-
-
 /**@brief Function for starting application timers.
  */
 static void application_timers_start(void)
@@ -574,18 +561,18 @@ static void application_timers_start(void)
     {
         APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
     }
-    if (pdPASS != xTimerStart(m_heart_rate_timer, OSTIMER_WAIT_FOR_QUEUE))
-    {
-        APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
-    }
-    if (pdPASS != xTimerStart(m_rr_interval_timer, OSTIMER_WAIT_FOR_QUEUE))
-    {
-        APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
-    }
-    if (pdPASS != xTimerStart(m_sensor_contact_timer, OSTIMER_WAIT_FOR_QUEUE))
-    {
-        APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
-    }
+//    if (pdPASS != xTimerStart(m_heart_rate_timer, OSTIMER_WAIT_FOR_QUEUE))
+//    {
+//        APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
+//    }
+//    if (pdPASS != xTimerStart(m_rr_interval_timer, OSTIMER_WAIT_FOR_QUEUE))
+//    {
+//        APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
+//    }
+//    if (pdPASS != xTimerStart(m_sensor_contact_timer, OSTIMER_WAIT_FOR_QUEUE))
+//    {
+//        APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
+//    }
 }
 
 
@@ -634,7 +621,7 @@ static void conn_params_init(void)
     cp_init.first_conn_params_update_delay = FIRST_CONN_PARAMS_UPDATE_DELAY;
     cp_init.next_conn_params_update_delay  = NEXT_CONN_PARAMS_UPDATE_DELAY;
     cp_init.max_conn_params_update_count   = MAX_CONN_PARAMS_UPDATE_COUNT;
-    cp_init.start_on_notify_cccd_handle    = m_hrs.hrm_handles.cccd_handle;
+    cp_init.start_on_notify_cccd_handle    = BLE_GATT_HANDLE_INVALID;//m_hrs.hrm_handles.cccd_handle;
     cp_init.disconnect_on_fail             = false;
     cp_init.evt_handler                    = on_conn_params_evt;
     cp_init.error_handler                  = conn_params_error_handler;
@@ -790,14 +777,17 @@ static void ble_evt_dispatch(ble_evt_t * p_ble_evt)
 {
     /** The Connection state module has to be fed BLE events in order to function correctly
      * Remember to call ble_conn_state_on_ble_evt before calling any ble_conns_state_* functions. */
-    ble_conn_state_on_ble_evt(p_ble_evt);
-    pm_on_ble_evt(p_ble_evt);
-    ble_hrs_on_ble_evt(&m_hrs, p_ble_evt);
-    ble_bas_on_ble_evt(&m_bas, p_ble_evt);
-    ble_conn_params_on_ble_evt(p_ble_evt);
-    bsp_btn_ble_on_ble_evt(p_ble_evt);
-    on_ble_evt(p_ble_evt);
-    ble_advertising_on_ble_evt(p_ble_evt);
+	ble_conn_state_on_ble_evt(p_ble_evt);
+	pm_on_ble_evt(p_ble_evt);
+	ble_bas_on_ble_evt(&m_bas, p_ble_evt);
+	ble_conn_params_on_ble_evt(p_ble_evt);
+	bsp_btn_ble_on_ble_evt(p_ble_evt);
+	on_ble_evt(p_ble_evt);
+	ble_advertising_on_ble_evt(p_ble_evt);
+	/*YOUR_JOB add calls to _on_ble_evt functions from each service your application is using
+	ble_xxs_on_ble_evt(&m_xxs, p_ble_evt);
+	ble_yys_on_ble_evt(&m_yys, p_ble_evt);
+	*/
 }
 
 
@@ -976,7 +966,7 @@ static void advertising_init(void)
     memset(&advdata, 0, sizeof(advdata));
 
     advdata.name_type               = BLE_ADVDATA_FULL_NAME;
-    advdata.include_appearance      = true;
+    advdata.include_appearance      = false;
     advdata.flags                   = BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE;
     advdata.uuids_complete.uuid_cnt = sizeof(m_adv_uuids) / sizeof(m_adv_uuids[0]);
     advdata.uuids_complete.p_uuids  = m_adv_uuids;
@@ -1034,7 +1024,6 @@ static void ble_stack_thread(void * arg)
     gap_params_init();
     advertising_init();
     services_init();
-    sensor_simulator_init();
     conn_params_init();
 
     application_timers_start();
