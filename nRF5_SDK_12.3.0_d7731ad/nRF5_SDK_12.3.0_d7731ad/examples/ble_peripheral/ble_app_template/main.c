@@ -136,6 +136,7 @@
 #define SEC_PARAM_MAX_KEY_SIZE          16                                          /**< Maximum encryption key size. */
 
 #define DEAD_BEEF                       0xDEADBEEF                                  /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
+static int8_t                           tx_power = -30;  
 
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;                            /**< Handle of the current connection. */
 
@@ -347,6 +348,9 @@ static void gap_params_init(void)
     gap_conn_params.conn_sup_timeout  = CONN_SUP_TIMEOUT;
 
     err_code = sd_ble_gap_ppcp_set(&gap_conn_params);
+    APP_ERROR_CHECK(err_code);
+																					
+		err_code = sd_ble_gap_tx_power_set(tx_power);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -894,6 +898,7 @@ static void advertising_init(void)
 //		advdata.uuids_complete.p_uuids  = m_adv_uuids;
 		advdata.uuids_complete.uuid_cnt = sizeof(find_uuids) / sizeof(find_uuids[0]);
     advdata.uuids_complete.p_uuids  = find_uuids;
+
 
     memset(&options, 0, sizeof(options));
     options.ble_adv_fast_enabled  = true;
