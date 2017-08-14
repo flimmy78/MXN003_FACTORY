@@ -1,0 +1,6 @@
+1.增加DFU服务后， 无法正常运行。
+提示APP_ERROR:ERROR:Fatal
+HARDFAULT:ERROR:Hardfault PC:1c0d0
+原因：RAM内存不足
+修改
+static void ble_stack_init(void) 函数中增加 ble_enable_params.common_enable_params.vs_uuid_count = 4;
