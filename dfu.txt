@@ -10,18 +10,15 @@ nrfutil pkg generate --hw-version 52 --application-version 1 --application appli
 0x8C --key-file private.key cc_Dfu12.2.zip
 
 nrf51
-nrfutil pkg generate --hw-version 51 --application-version 1 --application application.hex --sd-req
-0x87 --key-file private.key cc_Dfu12.2.zip
+nrfutil pkg generate --hw-version 51 --application-version 1 --application application.hex --sd-req 0x87 --key-file private.key cc_Dfu12.2.zip
 
 
 4.生成bootsetting
 nrf52：
-nrfutil settings generate --family NRF52 --application application.hex --application-version 1
---bootloader-version 1 --bl-settings-version 1 bootloader_setting.hex
+nrfutil settings generate --family NRF52 --application application.hex --application-version 1 --bootloader-version 1 --bl-settings-version 1 bootloader_setting.hex
 
 nrf51:
-nrfutil settings generate --family NRF51 --application application.hex --application-version 1
---bootloader-version 1 --bl-settings-version 1 bootloader_setting.hex
+nrfutil settings generate --family NRF51 --application application.hex --application-version 1 --bootloader-version 1 --bl-settings-version 1 bootloader_setting.hex
 
 5.合并烧入
 mergehex --merge softdevice.hex bootloader.hex application.hex --output output3to1.hex

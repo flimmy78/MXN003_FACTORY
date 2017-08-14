@@ -80,6 +80,7 @@
 #include "nrf_log.h"
 #include "nrf_log_ctrl.h"
 #include "app_uart.h"
+#include "ble_dfu.h"
 
 #define IS_SRVC_CHANGED_CHARACT_PRESENT  1                                /**< Include the Service Changed characteristic. If not enabled, the server's database cannot be changed for the lifetime of the device. */
 
@@ -91,7 +92,7 @@
 #define PERIPHERAL_LINK_COUNT            1                                /**< Number of peripheral links used by the application. When changing this number remember to adjust the RAM settings*/
 
 #define DEVICE_NAME                      "MXN003"                     /**< Name of device. Will be included in the advertising data. */
-#define MANUFACTURER_NAME                "V00.00"           				 /**< Manufacturer. Will be passed to Device Information Service. */
+#define MANUFACTURER_NAME                "1.0.0.20170814_alpha "           				 /**< Manufacturer. Will be passed to Device Information Service. */
 #define APP_ADV_INTERVAL                 300                              /**< The advertising interval (in units of 0.625 ms. This value corresponds to 187.5 ms). */
 #define APP_ADV_TIMEOUT_IN_SECONDS       0                              /**< The advertising time-out in units of seconds. */
 
@@ -110,10 +111,10 @@
 
 #define SENSOR_CONTACT_DETECTED_INTERVAL 5000                             /**< Sensor Contact Detected toggle interval (ms). */
 
-#define MIN_CONN_INTERVAL                MSEC_TO_UNITS(400, UNIT_1_25_MS) /**< Minimum acceptable connection interval (0.4 seconds). */
-#define MAX_CONN_INTERVAL                MSEC_TO_UNITS(650, UNIT_1_25_MS) /**< Maximum acceptable connection interval (0.65 second). */
-#define SLAVE_LATENCY                    0                                /**< Slave latency. */
-#define CONN_SUP_TIMEOUT                 MSEC_TO_UNITS(4000, UNIT_10_MS)  /**< Connection supervisory time-out (4 seconds). */
+#define MIN_CONN_INTERVAL               MSEC_TO_UNITS(400, UNIT_1_25_MS)            /**< Minimum acceptable connection interval (0.1 seconds). */
+#define MAX_CONN_INTERVAL               MSEC_TO_UNITS(600, UNIT_1_25_MS)            /**< Maximum acceptable connection interval (0.2 second). */
+#define SLAVE_LATENCY                   0                                           /**< Slave latency. */
+#define CONN_SUP_TIMEOUT                MSEC_TO_UNITS(4000, UNIT_10_MS)             /**< Connection supervisory timeout (4 seconds). */
 
 #define FIRST_CONN_PARAMS_UPDATE_DELAY   5000                             /**< Time from initiating event (connect or start of notification) to first time sd_ble_gap_conn_param_update is called (5 seconds). */
 #define NEXT_CONN_PARAMS_UPDATE_DELAY    30000                            /**< Time between each call to sd_ble_gap_conn_param_update after the first call (30 seconds). */
@@ -140,6 +141,7 @@
 static uint16_t  m_conn_handle = BLE_CONN_HANDLE_INVALID; /**< Handle of the current connection. */
 static ble_bas_t m_bas;                                   /**< Structure used to identify the battery service. */
 static ble_nus_t m_nus;                                   /**< Structure to identify the Nordic UART Service. */
+static ble_dfu_t m_dfus;     
 
 static ble_uuid_t m_adv_uuids[] =                         /**< Universally unique service identifiers. */
 {
@@ -321,9 +323,9 @@ static void battery_level_meas_timeout_handler(TimerHandle_t xTimer)
 static void timers_init(void)
 {
 
-    // Initialize timer module.
+//    // Initialize timer module.
     APP_TIMER_INIT(APP_TIMER_PRESCALER, APP_TIMER_OP_QUEUE_SIZE, false);
-    // Create timers.
+//    // Create timers.
     m_battery_timer = xTimerCreate("BATT",
                                    BATTERY_LEVEL_MEAS_INTERVAL,
                                    pdTRUE,
@@ -391,6 +393,41 @@ static void nus_data_handler(ble_nus_t * p_nus, uint8_t * p_data, uint16_t lengt
 }
 /**@snippet [Handling the data received over BLE] */
 
+static void ble_dfu_evt_handler(ble_dfu_t * p_dfu, ble_dfu_evt_t * p_evt)
+{
+    switch (p_evt->type)
+    {
+        case BLE_DFU_EVT_INDICATION_DISABLED:
+            NRF_LOG_INFO("Indication for BLE_DFU is disabled\r\n");
+            break;
+
+        case BLE_DFU_EVT_INDICATION_ENABLED:
+            NRF_LOG_INFO("Indication for BLE_DFU is enabled\r\n");
+            break;
+
+        case BLE_DFU_EVT_ENTERING_BOOTLOADER:
+            NRF_LOG_INFO("Device is entering bootloader mode!\r\n");
+            break;
+        default:
+            NRF_LOG_INFO("Unknown event from ble_dfu\r\n");
+            break;
+    }
+}
+
+///
+void ble_address_change(void)
+{
+	ble_gap_addr_t ble_addr;
+	sd_ble_gap_address_get(&ble_addr);
+	ble_addr.addr[0] = 0x99;
+	ble_addr.addr[1] = 0x99;
+	ble_addr.addr[2] = 0x99;
+	ble_addr.addr[3] = 0x99;
+	ble_addr.addr[4] = 0x99;
+	ble_addr.addr[5] = 0xff;
+
+	sd_ble_gap_address_set(BLE_GAP_ADDR_CYCLE_MODE_NONE,&ble_addr);
+}
 
 /**@brief Function for initializing services that will be used by the application.
  *
@@ -402,7 +439,19 @@ static void services_init(void)
     ble_bas_init_t bas_init;
     ble_dis_init_t dis_init;
 		ble_nus_init_t nus_init;
+		ble_dfu_init_t dfus_init;
 	
+	  // Initialize the Device Firmware Update Service.
+    memset(&dfus_init, 0, sizeof(dfus_init));
+
+    dfus_init.evt_handler                               = ble_dfu_evt_handler;
+    dfus_init.ctrl_point_security_req_write_perm        = SEC_SIGNED;
+    dfus_init.ctrl_point_security_req_cccd_write_perm   = SEC_SIGNED;
+
+    err_code = ble_dfu_init(&m_dfus, &dfus_init);
+    APP_ERROR_CHECK(err_code);
+//    
+//	
 	 // Initialize nus Service.
 		memset(&nus_init, 0, sizeof(nus_init));
 		nus_init.data_handler = nus_data_handler;
@@ -656,12 +705,15 @@ static void ble_evt_dispatch(ble_evt_t * p_ble_evt)
      * Remember to call ble_conn_state_on_ble_evt before calling any ble_conns_state_* functions. */
 	ble_conn_state_on_ble_evt(p_ble_evt);
 	pm_on_ble_evt(p_ble_evt);
-	ble_nus_on_ble_evt(&m_nus, p_ble_evt);
-	ble_bas_on_ble_evt(&m_bas, p_ble_evt);
+
+
 	ble_conn_params_on_ble_evt(p_ble_evt);
 	bsp_btn_ble_on_ble_evt(p_ble_evt);
 	on_ble_evt(p_ble_evt);
 	ble_advertising_on_ble_evt(p_ble_evt);
+	ble_dfu_on_ble_evt(&m_dfus, p_ble_evt);
+	ble_nus_on_ble_evt(&m_nus, p_ble_evt);
+  ble_bas_on_ble_evt(&m_bas, p_ble_evt);
 	/*YOUR_JOB add calls to _on_ble_evt functions from each service your application is using
 	ble_xxs_on_ble_evt(&m_xxs, p_ble_evt);
 	ble_yys_on_ble_evt(&m_yys, p_ble_evt);
@@ -728,6 +780,8 @@ static void ble_stack_init(void)
                                                     PERIPHERAL_LINK_COUNT,
                                                     &ble_enable_params);
     APP_ERROR_CHECK(err_code);
+	
+		ble_enable_params.common_enable_params.vs_uuid_count = 4;
 
     // Check the ram settings against the used number of links
     CHECK_RAM_START_ADDR(CENTRAL_LINK_COUNT, PERIPHERAL_LINK_COUNT);
