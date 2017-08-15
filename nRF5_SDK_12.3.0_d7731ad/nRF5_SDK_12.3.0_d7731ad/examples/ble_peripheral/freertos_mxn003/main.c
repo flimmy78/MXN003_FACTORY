@@ -81,6 +81,8 @@
 #include "nrf_log_ctrl.h"
 #include "app_uart.h"
 #include "ble_dfu.h"
+#include <string.h>
+#include <stdarg.h>
 
 #define IS_SRVC_CHANGED_CHARACT_PRESENT  1                                /**< Include the Service Changed characteristic. If not enabled, the server's database cannot be changed for the lifetime of the device. */
 
@@ -92,7 +94,7 @@
 #define PERIPHERAL_LINK_COUNT            1                                /**< Number of peripheral links used by the application. When changing this number remember to adjust the RAM settings*/
 
 #define DEVICE_NAME                      "MXN003"                     /**< Name of device. Will be included in the advertising data. */
-#define MANUFACTURER_NAME                "1.0.0.20170814_alpha "           				 /**< Manufacturer. Will be passed to Device Information Service. */
+#define MANUFACTURER_NAME                "1.0.0.20170815_alpha "           				 /**< Manufacturer. Will be passed to Device Information Service. */
 #define APP_ADV_INTERVAL                 300                              /**< The advertising interval (in units of 0.625 ms. This value corresponds to 187.5 ms). */
 #define APP_ADV_TIMEOUT_IN_SECONDS       0                              /**< The advertising time-out in units of seconds. */
 
@@ -372,6 +374,37 @@ static void gap_params_init(void)
     APP_ERROR_CHECK(err_code);
 }
 
+static void U_PutUARTBytes(uint8_t *data,uint16_t len)
+{
+   uint16_t index;
+
+   for(index = 0; index < len; index++)
+			while(app_uart_put(*(data+index)) != NRF_SUCCESS);
+}
+
+static void U_PutUARTByte(char * fmt, int size){
+	U_PutUARTBytes((uint8_t*)fmt, size);
+	U_PutUARTBytes((uint8_t*)"\r\n", 2);
+}
+
+
+static void PutUARTBytes(const char *fmt, ...)
+{
+    static char logCbuf[1024];
+    va_list args;
+    char *p;
+    int n, m;
+
+    memset(logCbuf, 0, 1024);
+    p = logCbuf;
+    m = 1020;
+    va_start(args, fmt);
+    n = vsnprintf(p, m, fmt, args);
+    va_end(args);
+
+    U_PutUARTByte(logCbuf, n);
+}
+
 /**@brief Function for handling the data from the Nordic UART Service.
  *
  * @details This function will process the data received from the Nordic UART BLE Service and send
@@ -384,12 +417,31 @@ static void gap_params_init(void)
 /**@snippet [Handling the data received over BLE] */
 static void nus_data_handler(ble_nus_t * p_nus, uint8_t * p_data, uint16_t length)
 {
-    for (uint32_t i = 0; i < length; i++)
-    {
-        while (app_uart_put(p_data[i]) != NRF_SUCCESS);
-    }
-    while (app_uart_put('\r') != NRF_SUCCESS);
-    while (app_uart_put('\n') != NRF_SUCCESS);
+	/*收到手机的消息*/
+		NRF_LOG_INFO("data:%s    length:%d\r\n",(uint32_t)p_data,length)
+		char *data = (char *)p_data;
+		uint8_t cmd = 0;
+		if(!strncmp(data,"AP+EVERN",length)){
+			cmd = 1;
+		}else{
+			cmd = 0;
+		}
+		NRF_LOG_INFO("cmd = %d\r\n",cmd);
+		/*发送AT命令*/
+		switch(cmd){
+			case 1:
+				PutUARTBytes("AT+EVERN\r\n");
+				break;
+			default:
+				break;
+		}
+
+//    for (uint32_t i = 0; i < length; i++)
+//    {
+//        while (app_uart_put(p_data[i]) != NRF_SUCCESS);
+//    }
+//    while (app_uart_put('\r') != NRF_SUCCESS);
+//    while (app_uart_put('\n') != NRF_SUCCESS);
 }
 /**@snippet [Handling the data received over BLE] */
 

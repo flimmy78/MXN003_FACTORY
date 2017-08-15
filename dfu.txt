@@ -25,3 +25,5 @@ mergehex --merge softdevice.hex bootloader.hex application.hex --output output3t
 
 5.烧入后启动application
 mergehex --merge output3to1.hex bootloader_setting.hex --output output.hex
+
+mergehex --merge softdevice.hex bootloader.hex application.hex bootloader_setting.hex --output output3to1.hex
