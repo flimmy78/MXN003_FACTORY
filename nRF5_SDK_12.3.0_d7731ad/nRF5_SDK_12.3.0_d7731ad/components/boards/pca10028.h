@@ -57,6 +57,7 @@ extern "C" {
 	
 #define VOICE_CHIP_PIN  8
 #define VOICE_MOSE_PIN 20
+#define VOICE_CHECK_PIN 16
 	
 	
 // LEDs definitions for PCA10028
