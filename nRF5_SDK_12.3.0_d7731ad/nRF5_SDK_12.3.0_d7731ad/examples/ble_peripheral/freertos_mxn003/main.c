@@ -83,6 +83,7 @@
 #include "ble_dfu.h"
 #include <string.h>
 #include <stdarg.h>
+#include "nrf_delay.h"
 
 #define IS_SRVC_CHANGED_CHARACT_PRESENT  1                                /**< Include the Service Changed characteristic. If not enabled, the server's database cannot be changed for the lifetime of the device. */
 
@@ -110,6 +111,11 @@
 #define MIN_RR_INTERVAL                  100                              /**< Minimum RR interval as returned by the simulated measurement function. */
 #define MAX_RR_INTERVAL                  500                              /**< Maximum RR interval as returned by the simulated measurement function. */
 #define RR_INTERVAL_INCREMENT            1                                /**< Value by which the RR interval is incremented/decremented for each call to the simulated measurement function. */
+
+#define VOI_INTERVAL_INTERVAL             300                              /**< RR interval interval (ms). */
+#define MIN_VOI_INTERVAL                  100                              /**< Minimum RR interval as returned by the simulated measurement function. */
+#define MAX_VOI_INTERVAL                  500                              /**< Maximum RR interval as returned by the simulated measurement function. */
+#define VOI_INTERVAL_INCREMENT            1 
 
 #define SENSOR_CONTACT_DETECTED_INTERVAL 5000                             /**< Sensor Contact Detected toggle interval (ms). */
 
@@ -145,6 +151,11 @@ static ble_bas_t m_bas;                                   /**< Structure used to
 static ble_nus_t m_nus;                                   /**< Structure to identify the Nordic UART Service. */
 static ble_dfu_t m_dfus;     
 
+static uint8_t voice_count = 0;
+static uint8_t voice_class = 0;
+#define SDAH nrf_gpio_pin_write(VOICE_CHIP_PIN, 1)
+#define SDAL nrf_gpio_pin_write(VOICE_CHIP_PIN, 0)
+
 static ble_uuid_t m_adv_uuids[] =                         /**< Universally unique service identifiers. */
 {
 		//{BLE_UUID_NUS_SERVICE, BLE_UUID_TYPE_VENDOR_BEGIN}
@@ -153,6 +164,7 @@ static ble_uuid_t m_adv_uuids[] =                         /**< Universally uniqu
 };
 
 static TimerHandle_t m_battery_timer;        /**< Definition of battery timer. */
+static TimerHandle_t m_voice_timer;
 
 static SemaphoreHandle_t m_ble_event_ready;  /**< Semaphore raised if there is a new event to be processed in the BLE thread. */
 
@@ -300,6 +312,56 @@ static void battery_level_update(void)
     }
 }
 
+static void voice_chip_output(uint8_t reg)
+{
+	SDAL;
+	nrf_delay_ms(2);
+	for(uint8_t i = 0; i < 8; i++)
+	{
+		SDAH;
+		if(reg & 1){
+			nrf_delay_us(1200);
+			SDAL;
+			nrf_delay_us(400);
+		}else{
+			nrf_delay_us(400);
+			SDAL;
+			nrf_delay_us(1200);
+		}
+		reg >>= 1;
+	}
+	SDAH;
+//	nrf_gpio_pin_write(VOICE_CHIP_PIN, 0);
+//	nrf_delay_ms(4);
+
+//	for(int i = 0; i < reg; i++){
+//		nrf_gpio_pin_write(VOICE_CHIP_PIN, 1);
+//		nrf_delay_us(800);
+//		nrf_gpio_pin_write(VOICE_CHIP_PIN, 0);
+//		nrf_delay_us(2400);
+//	}
+//	nrf_gpio_pin_write(VOICE_CHIP_PIN, 1);
+}	
+
+static void voice_timeout_handler(TimerHandle_t xTimer)
+{
+	NRF_LOG_INFO("reg =  %d\r\n",voice_class);
+	UNUSED_PARAMETER(xTimer);
+	nrf_gpio_pin_write(VOICE_MOSE_PIN, 0);
+	nrf_delay_ms(500);
+	voice_chip_output(voice_class);
+//	static uint8_t i = 1;
+//	if(i < voice_count){
+//		if (pdPASS != xTimerStart(m_voice_timer, OSTIMER_WAIT_FOR_QUEUE))
+//		{
+//			APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
+//		}
+//		i++;
+//	}else{
+//		i = 0;
+//	}
+}
+
 
 /**@brief Function for handling the Battery measurement timer time-out.
  *
@@ -333,8 +395,17 @@ static void timers_init(void)
                                    pdTRUE,
                                    NULL,
                                    battery_level_meas_timeout_handler);
+	
+	  m_voice_timer = xTimerCreate("VOICE",
+                                   VOI_INTERVAL_INTERVAL,
+                                   pdFALSE,
+                                   NULL,
+                                   voice_timeout_handler);
+	
+	
     /* Error checking */
-    if (NULL == m_battery_timer)
+    if ((NULL == m_battery_timer)
+			 || (NULL == m_voice_timer))
     {
         APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
     }
@@ -405,6 +476,322 @@ static void PutUARTBytes(const char *fmt, ...)
     U_PutUARTByte(logCbuf, n);
 }
 
+typedef struct 
+{
+	short  position;
+	short  length;
+	char   character[20];
+} custom_cmdLine;
+
+typedef enum
+{
+	CUSTOM_RSP_ERROR = -1,
+	CUSTOM_RSP_OK = 0,
+	CUSTOM_RSP_LATER
+} custom_rsp_type_enum;
+
+typedef struct
+{
+	char *commandString;
+	custom_rsp_type_enum (*commandFunc)(custom_cmdLine *commandBuffer_p);
+} custom_atcmd;
+
+typedef enum
+{
+	CUSTOM_WRONG_MODE,
+	CUSTOM_SET_OR_EXECUTE_MODE,
+	CUSTOM_READ_MODE,
+	CUSTOM_TEST_MODE,
+	CUSTOM_ACTIVE_MODE
+} custom_cmd_mode_enum;
+
+typedef struct
+{
+	short  position;
+	uint8_t   	 part;
+	char     	 	 rcv_msg[20];
+	char       	 *pars[20];
+	uint16_t      rcv_length;
+} cmd_data_struct;
+
+typedef enum
+{
+    CM_Main,
+    CM_Par1,
+    CM_Par2,
+    CM_Par3,
+    CM_Par4,
+    CM_Par5,
+    CM_Par6,
+    CM_Par7,
+    CM_Par8,
+    CMD_MAX_Pars
+} Cmd_Pars;
+
+static custom_cmd_mode_enum custom_find_cmd_mode(custom_cmdLine *cmd_line)
+{
+    custom_cmd_mode_enum result;
+   // if (cmd_line->position < cmd_line->length - 1) //modfiy by xuzhoubin for no '\r\n'
+		if (cmd_line->position < cmd_line->length)
+    {
+        switch (cmd_line->character[cmd_line->position])
+        {
+            case '?':  /* AT+...? */
+            {
+                cmd_line->position++;
+                result = CUSTOM_READ_MODE;
+                break;
+            }
+            case '=':  /* AT+...= */
+            {
+                cmd_line->position++;								
+                if ((cmd_line->position < cmd_line->length ) &&
+                    (cmd_line->character[cmd_line->position] == '?'))
+                {
+                    cmd_line->position++;
+                    result = CUSTOM_TEST_MODE;
+                }
+                else
+                {
+                    result = CUSTOM_SET_OR_EXECUTE_MODE;
+                }
+                break;
+            }
+            default:  /* AT+... */
+            {
+                result = CUSTOM_ACTIVE_MODE;
+                break;
+            }
+        }
+    }
+    else
+    {
+        result = CUSTOM_ACTIVE_MODE;
+    }
+    return (result);
+}
+
+static int fun_str_analyse(char *str_data, char **tar_data, int limit, char startChar, char *endChars, char splitChar)
+{
+    static char *blank = "";
+    int len, i = 0, j = 0, status = 0;
+    char *p;
+    if(str_data == NULL || tar_data == NULL)
+    {
+        return -1;
+    }
+    len = strlen(str_data);
+	
+		if(str_data[len - 1]  == '\n')  //add by xuzhoubin for have  \r\n,数据解析error
+				len -=2;
+	
+    for(i = 0, j = 0, p = str_data; i < len; i++, p++)
+    {
+        if(status == 0 && (*p == startChar || startChar == NULL))
+        {
+            status = 1;
+            if(j >= limit)
+            {
+                return -2;
+            }
+            if((startChar == NULL))
+            {
+                tar_data[j++] = p;
+            }
+            else if(*(p + 1) == splitChar)
+            {
+                tar_data[j++] = blank;
+            }
+            else
+            {
+                tar_data[j++] = p + 1;
+            }
+        }
+        if(status == 0)
+        {
+            continue;
+        }
+        if(strchr(endChars, *p) != NULL)
+        {
+            *p = 0;
+            break;
+        }
+        if(*p == splitChar)
+        {
+            *p = 0;
+            if(j >= limit)
+            {
+                return -3;
+            }
+            if(strchr(endChars, *(p + 1)) != NULL || *(p + 1) == splitChar)
+            {
+                tar_data[j++] = blank;
+            }
+            else
+            {
+                tar_data[j++] = p + 1;
+            }
+        }
+    }
+    for(i = j; i < limit; i++)
+    {
+        tar_data[i] = blank;
+    }
+    return j;
+}
+
+static int cmd_analyse(cmd_data_struct * command)
+{
+	char        *data_ptr, split_ch = ',';
+	int         cmd_Len, par_len;
+	
+	
+	if(command == NULL || command->rcv_length < 1)
+  {
+        return -1;
+  }
+	//fun_toUpper(command->rcv_msg);
+	data_ptr = &command->rcv_msg[command->position];//parse_sms_head(command->rcv_msg); 
+	
+	cmd_Len = strlen(data_ptr);
+	
+
+    if(data_ptr[cmd_Len - 3] == '#' && data_ptr[cmd_Len - 2] == 0x0D && data_ptr[cmd_Len - 1] == 0x0A)
+    {
+        data_ptr[cmd_Len - 3] = 0;
+    }
+    else if(data_ptr[cmd_Len - 2] == '#' && data_ptr[cmd_Len - 1] == 0x0D)
+    {
+        data_ptr[cmd_Len - 2] = 0;
+    }
+    else if(data_ptr[cmd_Len - 1] == '#')
+    {
+        data_ptr[cmd_Len - 1] = 0;
+    }
+			
+		par_len = fun_str_analyse(data_ptr, command->pars, 20, NULL, "\r\n", split_ch);
+
+    if(par_len > 20 || par_len <= 0)
+    {
+        return -1;
+    }
+		
+		if(par_len > 20 || par_len <= 0)
+    {
+        return -1;
+    }
+		
+		if((par_len - CM_Main) > 0)
+    {
+        command->part = par_len - CM_Main;
+    }
+    else
+    {
+        command->part = 0;
+    }	
+
+	return 1;
+}
+
+cmd_data_struct at_get_at_para(custom_cmdLine *commandBuffer_p)
+{
+		static cmd_data_struct at_cmd = {0};
+		if(commandBuffer_p->length && (commandBuffer_p->length <(20)))
+		{
+			memset(&at_cmd, 0, sizeof(cmd_data_struct)); 
+			memcpy(&at_cmd.rcv_msg, commandBuffer_p->character, commandBuffer_p->length);	
+
+			at_cmd.rcv_length = commandBuffer_p->length;
+			at_cmd.position   = commandBuffer_p->position;
+			
+			cmd_analyse(&at_cmd);
+		}
+		return at_cmd;
+}
+
+custom_rsp_type_enum custom_rssi_func(custom_cmdLine *commandBuffer_p){
+		NRF_LOG_INFO("custom_rssi_func\r\n");
+		PutUARTBytes("AT+RSSI\r\n");
+		return CUSTOM_RSP_OK;
+}
+
+custom_rsp_type_enum custom_voice_func(custom_cmdLine *commandBuffer_p){
+		custom_cmd_mode_enum result;
+    custom_rsp_type_enum ret_value  = CUSTOM_RSP_ERROR;
+    result = custom_find_cmd_mode(commandBuffer_p);
+	
+		cmd_data_struct cmd = at_get_at_para(commandBuffer_p);
+		if(cmd.part != 2)
+			return CUSTOM_RSP_ERROR;
+
+		switch (result)
+    {
+				case CUSTOM_SET_OR_EXECUTE_MODE:
+						voice_count = atoi(cmd.pars[1]);
+						voice_class = atoi(cmd.pars[0]);
+						if (pdPASS != xTimerStart(m_voice_timer, OSTIMER_WAIT_FOR_QUEUE))
+						{
+							APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
+						}
+						ret_value = CUSTOM_RSP_OK;
+						break;
+        default:
+            ret_value = CUSTOM_RSP_ERROR;
+            break;
+		}
+		
+		return ret_value;
+}
+
+const custom_atcmd custom_cmd_table[ ] =
+{
+	{"AP+RSSI",custom_rssi_func},
+	{"AP+VOICE",custom_voice_func},
+	{NULL, NULL}
+};
+
+static bool app_data_hdlr(char *full_cmd_string,uint16_t length)
+{
+		char buffer[20];
+		uint8_t re_Data[] = "OK";
+		uint8_t re_Data1[] = "ERROR";
+		char *cmd_name, *cmdString;
+		uint8_t index = 0; 
+		uint16_t i;
+		custom_cmdLine command_line;
+		cmd_name = buffer;
+		length = length > 20 ? 20 : length;  
+	
+		while ((full_cmd_string[index] != '=' ) &&  //might be TEST command or EXE command
+				(full_cmd_string[index] != '?' ) && // might be READ command
+				(full_cmd_string[index] != 13 ) && //carriage return
+		index < length)  
+		{
+			cmd_name[index] = full_cmd_string[index] ;
+			index ++;
+		}
+		cmd_name[index] = '\0' ;  
+		
+		for (i = 0 ; custom_cmd_table[i].commandString != NULL; i++ )
+		{
+			cmdString = custom_cmd_table[i].commandString;
+			if (strcmp(cmd_name, cmdString) == 0 ){
+					strncpy(command_line.character, full_cmd_string, 20);
+					command_line.character[19] = '\0';
+					command_line.length = strlen(command_line.character);
+					command_line.position = index;
+					if (custom_cmd_table[i].commandFunc(&command_line) == CUSTOM_RSP_OK) {
+								ble_nus_string_send(&m_nus, re_Data, sizeof(re_Data));
+						}else{
+								ble_nus_string_send(&m_nus, re_Data1, sizeof(re_Data1));
+            }
+					return true;
+			}
+		}
+		
+		return true;
+		
+}
 /**@brief Function for handling the data from the Nordic UART Service.
  *
  * @details This function will process the data received from the Nordic UART BLE Service and send
@@ -418,24 +805,34 @@ static void PutUARTBytes(const char *fmt, ...)
 static void nus_data_handler(ble_nus_t * p_nus, uint8_t * p_data, uint16_t length)
 {
 	/*收到手机的消息*/
-		NRF_LOG_INFO("data:%s    length:%d\r\n",(uint32_t)p_data,length)
-		char *data = (char *)p_data;
-		uint8_t cmd = 0;
-		if(!strncmp(data,"AP+EVERN",length)){
-			cmd = 1;
-		}else{
-			cmd = 0;
-		}
-		NRF_LOG_INFO("cmd = %d\r\n",cmd);
-		/*发送AT命令*/
-		switch(cmd){
-			case 1:
-				PutUARTBytes("AT+EVERN\r\n");
-				break;
-			default:
-				break;
-		}
-
+	//进行数据解析
+			uint8_t *data = p_data;
+			app_data_hdlr((char *)data, length);
+			memset(p_data, 0, sizeof(uint8_t)*length);
+//		NRF_LOG_INFO("data:%s    length:%d\r\n",(uint32_t)p_data,length)
+//		char *data = (char *)p_data;
+//		uint8_t cmd = 0;
+//		if(!strncmp(data,"AP+EVERN",length)){
+//			cmd = 1;
+//		}else if(!strncmp(data,"AP+VOICE",8)){
+//			cmd = 2;
+//		}else{
+//			cmd = 0;
+//		}
+//		NRF_LOG_INFO("cmd = %d\r\n",cmd);
+//		/*发送AT命令*/
+//		switch(cmd){
+//			case 1:
+//				PutUARTBytes("AT+EVERN\r\n");
+//				break;
+//			case 2:
+//					data += 8; length -=8;
+//					NRF_LOG_INFO("data = %s length = %d  %d\r\n",(uint32_t)data,length, atoi(data));
+//				break;
+//			default:
+//				break;
+//		}
+	//	memset(p_data,0,20);
 //    for (uint32_t i = 0; i < length; i++)
 //    {
 //        while (app_uart_put(p_data[i]) != NRF_SUCCESS);
@@ -1057,7 +1454,14 @@ static void uart_init(void)
     APP_ERROR_CHECK(err_code);
 }
 /**@snippet [UART Initialization] */
-
+static void gpio_init(void)
+{
+	/*语音芯片*/
+	nrf_gpio_cfg_output(VOICE_CHIP_PIN);
+	nrf_gpio_cfg_output(VOICE_MOSE_PIN);
+	nrf_gpio_pin_write(VOICE_CHIP_PIN, 1);
+	nrf_gpio_pin_write(VOICE_MOSE_PIN, 1);
+}
 
 /**@brief Thread for handling the Application's BLE Stack events.
  *
@@ -1075,6 +1479,7 @@ static void ble_stack_thread(void * arg)
 
     // Initialize.
     timers_init();
+		gpio_init();
 		uart_init();
     buttons_leds_init(&erase_bonds);
     ble_stack_init();
