@@ -54,6 +54,9 @@ extern "C" {
 #define ELE_MACH_CONTRL_PIN1  	17
 #define ELE_MACH_CONTRL_PIN2    18
 	
+#define MAC_CHECK_PIN1 3
+#define MAC_CHECK_PIN2 4
+	
 	
 #define VOICE_CHIP_PIN  8
 #define VOICE_MOSE_PIN 20

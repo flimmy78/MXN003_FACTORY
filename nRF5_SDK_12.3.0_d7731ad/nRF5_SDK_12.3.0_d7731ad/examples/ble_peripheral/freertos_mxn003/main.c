@@ -118,6 +118,12 @@
 #define MAX_VOI_INTERVAL                  500                              /**< Maximum RR interval as returned by the simulated measurement function. */
 #define VOI_INTERVAL_INCREMENT            1 
 
+#define UART_INTERVAL_INTERVAL             3000                              /**< RR interval interval (ms). */
+#define MIN_UART_INTERVAL                  100                              /**< Minimum RR interval as returned by the simulated measurement function. */
+#define MAX_UART_INTERVAL                  500                              /**< Maximum RR interval as returned by the simulated measurement function. */
+#define UART_INTERVAL_INCREMENT            1 
+
+
 #define SENSOR_CONTACT_DETECTED_INTERVAL 5000                             /**< Sensor Contact Detected toggle interval (ms). */
 
 #define MIN_CONN_INTERVAL               MSEC_TO_UNITS(400, UNIT_1_25_MS)            /**< Minimum acceptable connection interval (0.1 seconds). */
@@ -154,6 +160,7 @@ static ble_dfu_t m_dfus;
 
 static uint8_t voice_count = 0;
 static uint8_t voice_class = 0;
+static uint8_t uart_timeout = 0;
 #define SDAH nrf_gpio_pin_write(VOICE_CHIP_PIN, 1)
 #define SDAL nrf_gpio_pin_write(VOICE_CHIP_PIN, 0)
 
@@ -166,13 +173,75 @@ static ble_uuid_t m_adv_uuids[] =                         /**< Universally uniqu
 
 static TimerHandle_t m_battery_timer;        /**< Definition of battery timer. */
 static TimerHandle_t m_voice_timer;
-
+static TimerHandle_t m_uart_timer;
 static SemaphoreHandle_t m_ble_event_ready;  /**< Semaphore raised if there is a new event to be processed in the BLE thread. */
 
 static TaskHandle_t m_ble_stack_thread;      /**< Definition of BLE stack thread. */
 static TaskHandle_t m_logger_thread;         /**< Definition of Logger thread. */
 
 static void advertising_start(void);
+
+static void uart_onoff(int8_t on)
+{
+	if(1 == on){
+	 NRF_UART0->ENABLE        = (UART_ENABLE_ENABLE_Enabled << UART_ENABLE_ENABLE_Pos);
+   NRF_UART0->TASKS_STARTRX = 1;
+   NRF_UART0->TASKS_STARTTX = 1;
+	}else{
+		NRF_UART0->TASKS_STOPTX = 1;
+		NRF_UART0->TASKS_STOPRX = 1;
+		NRF_UART0->ENABLE       = (UART_ENABLE_ENABLE_Disabled << UART_ENABLE_ENABLE_Pos);
+	}
+}
+
+static void uart_getline(uint8_t * line,uint32_t timeout)
+{
+    uint8_t i = 0, ch = 0;
+    uint32_t err_code;
+
+		do {
+			err_code = app_uart_get(&ch);
+			if (NRF_ERROR_NOT_FOUND == err_code)
+			{
+					if(timeout-- > 0){
+						nrf_delay_ms(1000);
+						sd_app_evt_wait();
+					}else{
+						break;
+					}
+			}
+			else if (NRF_SUCCESS == err_code)   
+			{
+				line[i++] = ch;
+			}
+			else
+			{
+				APP_ERROR_CHECK(err_code);
+			}
+		}
+		while (ch != '\n');
+}
+
+static uint8_t* get_uart_responese(uint8_t * command_buffer)
+{
+		uart_getline(command_buffer,5);
+		
+		return command_buffer;
+}
+
+static int8_t uart_data_analyze(char *str, int buffer, int timeout)
+{
+		uint8_t cmd_buffer[10] = {0};
+//		time_t start;
+//		start = time(NULL);
+		timeout = 10;
+		while(1){
+			get_uart_responese(cmd_buffer);
+			if(strstr((const char *)cmd_buffer,(const char *)str) != NULL)
+				return 1;
+		}
+		return -1;
+}
 
 /**@brief Callback function for asserts in the SoftDevice.
  *
@@ -346,7 +415,6 @@ static void voice_chip_output(uint8_t reg)
 
 void in_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
 {
-	NRF_LOG_INFO("in_pin_handler\r\n");
 	static uint8_t i = 1;
 	if(i < voice_count){
 		i++;
@@ -357,12 +425,49 @@ void in_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
 	}else{
 		i = 1;
 		nrf_gpio_pin_write(VOICE_MOSE_PIN, 1);
+		ble_nus_string_send(&m_nus,(uint8_t *) "voice:accomplish", sizeof("voice:accomplish"));
 	}
 }
 
+void in_pin_handler_test(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
+{
+	switch(pin){
+		case 3:
+			if( nrf_gpio_pin_read(MAC_CHECK_PIN1) == 1){
+				NRF_LOG_INFO("MAC_CHECK_PIN1 HIGH\r\n");
+			}
+			else{
+				NRF_LOG_INFO("MAC_CHECK_PIN1 LOW\r\n");
+			}
+			break;
+		case 4:
+		if( nrf_gpio_pin_read(MAC_CHECK_PIN2) == 1){
+				NRF_LOG_INFO("MAC_CHECK_PIN2 HIGH\r\n");
+			}
+			else{
+				NRF_LOG_INFO("MAC_CHECK_PIN2 LOW\r\n");
+			}
+			break;
+		default:
+			NRF_LOG_INFO("default ...!!!\r\n");
+			break;		
+	}
+
+}
+
+
+static void uart_timeout_handler(TimerHandle_t xTimer)
+{
+	UNUSED_PARAMETER(xTimer);
+	NRF_LOG_INFO("uart_timeout_handler\r\n");
+	NRF_LOG_FLUSH();
+	uart_timeout = 1;
+}
+
+
 static void voice_timeout_handler(TimerHandle_t xTimer)
 {
-	NRF_LOG_INFO("reg =  %d\r\n",voice_class);
+	NRF_LOG_INFO("voice_timeout_handler REG =  %d\r\n",voice_class);
 	UNUSED_PARAMETER(xTimer);
 	nrf_gpio_pin_write(VOICE_MOSE_PIN, 0);
 	nrf_delay_ms(500);
@@ -419,10 +524,17 @@ static void timers_init(void)
                                    NULL,
                                    voice_timeout_handler);
 	
+		m_uart_timer = xTimerCreate("UART",
+                                   UART_INTERVAL_INTERVAL,
+                                   pdFALSE,
+                                   NULL,
+                                   uart_timeout_handler);
+	
 	
     /* Error checking */
     if ((NULL == m_battery_timer)
-			 || (NULL == m_voice_timer))
+			 || (NULL == m_voice_timer)
+			 || (NULL == m_uart_timer))
     {
         APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
     }
@@ -710,6 +822,40 @@ static int cmd_analyse(cmd_data_struct * command)
 	return 1;
 }
 
+int8_t wait_reponse(char *desire_rep, uint16_t timeout)
+{
+	uint8_t tmp_tout = 0;
+	uint8_t tmp_i = 0;
+	uint8_t p;
+	uint8_t str[30];
+	while(1){
+		while(NRF_SUCCESS != app_uart_get(&p)){
+			//nrf_delay_ms(100);
+//			tmp_tout ++;
+//			if(tmp_tout > timeout)
+//				return 2;
+		}
+		NRF_LOG_INFO("strxxx = %c\r\n",p);
+		NRF_LOG_FLUSH();
+		
+		str[tmp_i] = p;
+		tmp_i++;
+
+		NRF_LOG_INFO("str[] = %s\r\n",(uint32_t)str);
+		NRF_LOG_FLUSH();
+		
+		
+		if((p == '\r') || (p == '\n')){
+		NRF_LOG_INFO(" is r/r/n \r\n");
+		NRF_LOG_FLUSH();
+		}
+		if(0 != strstr((char *)str,desire_rep)){
+			return 1;
+		}
+	}
+}
+
+
 cmd_data_struct at_get_at_para(custom_cmdLine *commandBuffer_p)
 {
 		static cmd_data_struct at_cmd = {0};
@@ -746,6 +892,7 @@ custom_rsp_type_enum custom_voice_func(custom_cmdLine *commandBuffer_p){
 				case CUSTOM_SET_OR_EXECUTE_MODE:
 						voice_count = atoi(cmd.pars[1]);
 						voice_class = atoi(cmd.pars[0]);
+						ble_nus_string_send(&m_nus,(uint8_t *) "voice:start", sizeof("voice:start"));
 						if (pdPASS != xTimerStart(m_voice_timer, OSTIMER_WAIT_FOR_QUEUE))
 						{
 							APP_ERROR_HANDLER(NRF_ERROR_NO_MEM);
@@ -760,18 +907,298 @@ custom_rsp_type_enum custom_voice_func(custom_cmdLine *commandBuffer_p){
 		return ret_value;
 }
 
+void Delay(unsigned int nDelay)
+{
+	unsigned int i,j,k;
+	for ( i=0;i<nDelay;i++ )
+		for ( j=0;j<6144;j++ )
+			k++;
+}
+
+int  uart_get_with_timeout(int32_t timeout_ms, char * rx_data, char *des_str)
+{
+    uint8_t i = 0, ch = 0;
+    uint32_t err_code;
+
+		int  ret = 1;
+		do {
+			err_code = app_uart_get(&ch);
+			if (NRF_ERROR_NOT_FOUND == err_code)
+			{
+				if(timeout_ms-- > 0){
+					Delay(1000);
+				}else{
+					return 2;
+				}
+			}
+			else if (NRF_SUCCESS == err_code)   
+			{
+				rx_data[i++] = ch;
+				if(strstr((const char *)rx_data,(const char *)des_str) != NULL){
+				return 1;
+				}
+			}
+			else
+			{
+				APP_ERROR_CHECK(err_code);
+			}
+		}
+		while (1);
+}
+
+
+custom_rsp_type_enum custom_mod_func(custom_cmdLine *commandBuffer_p){
+		custom_cmd_mode_enum result;
+    custom_rsp_type_enum ret_value  = CUSTOM_RSP_ERROR;
+    result = custom_find_cmd_mode(commandBuffer_p);
+
+	
+		cmd_data_struct cmd = at_get_at_para(commandBuffer_p);
+		if(cmd.part != 1)
+			return CUSTOM_RSP_ERROR;
+		uint8_t status = atoi(cmd.pars[0]);
+		switch (result)
+    {
+				case CUSTOM_SET_OR_EXECUTE_MODE:
+						if(1 == status){
+							nrf_gpio_pin_write(MODME_CONTRL_PIN, 0);
+							uart_onoff(1);
+							nrf_delay_ms(2000);
+							uint8_t data_buffer[512] = {0};
+							char str_buff[] = "+EUSIM: 1\r\n";
+			
+							uint8_t ret = uart_get_with_timeout(0,data_buffer,str_buff);
+							if(ret == 1){
+								ble_nus_string_send(&m_nus, (uint8_t *)"modem:open:sucess", sizeof("modem:open:sucess"));
+							}else{
+								ble_nus_string_send(&m_nus, (uint8_t *)"modem:open:fail", sizeof("modem:open:fail"));
+							}
+							NRF_LOG_INFO("ret = %d\r\n",ret);
+							
+							NRF_LOG_INFO("data::%s\r\n",(uint32_t)data_buffer);
+		//--------------------------------------------					
+							
+//							uint8_t p;
+//							while(1){
+//							bool ret = uart_get_with_timeout(10,&p);
+//								if(ret == false)
+//									break;
+//							
+//							NRF_LOG_INFO("%c\r\n",p);
+//							NRF_LOG_FLUSH();
+//							}
+						//	wait_reponse("+EUSIM",20);
+//							uint8_t cmd_buffer[10] = {0};
+//							while(1){
+//								get_uart_responese(cmd_buffer);
+//								NRF_LOG_INFO("data:%s  |||| size=%d\r\n", (uint32_t)cmd_buffer,sizeof(cmd_buffer));
+//								if(strstr((const char *)cmd_buffer, "+EUSIM: 1") != NULL){
+//									ble_nus_string_send(&m_nus, "modem_open", 10);
+//									return CUSTOM_RSP_OK;
+//								}
+//							}
+							//int ret = wait_reponse("+EUSIM",3);
+							//NRF_LOG_INFO("xxxret = %d\r\n", ret);
+//							uint8_t cmd_buffer[20] = {0};
+//							uart_timeout = 0;
+//							xTimerStart(m_uart_timer, OSTIMER_WAIT_FOR_QUEUE);
+//							while(1){
+//									get_uart_responese(cmd_buffer);
+//									if(strstr((const char *)cmd_buffer, "+EUSIM") != NULL){
+//										ble_nus_string_send(&m_nus, "modem_open", 10);
+//										return CUSTOM_RSP_OK;
+//										}else if (uart_timeout == 1){
+//											ble_nus_string_send(&m_nus, "timeout", 7);
+//											return CUSTOM_RSP_OK;
+//										}
+//								}
+	
+						}else{
+							uart_onoff(0);
+							nrf_gpio_pin_write(MODME_CONTRL_PIN, 1);
+							ble_nus_string_send(&m_nus, (uint8_t *)"modem:close:sucess", sizeof("modem:close:sucess"));
+							ret_value = CUSTOM_RSP_OK;
+						}
+						break;
+        default:
+            ret_value = CUSTOM_RSP_ERROR;
+            break;
+		}
+		
+		return ret_value;	
+}
+
+custom_rsp_type_enum custom_modem_version_func(custom_cmdLine *commandBuffer_p){
+//		custom_cmd_mode_enum result;
+//    custom_rsp_type_enum ret_value  = CUSTOM_RSP_ERROR;
+//    result = custom_find_cmd_mode(commandBuffer_p);
+//	
+//		cmd_data_struct cmd = at_get_at_para(commandBuffer_p);
+		//NRF_LOG_INFO("custom_modem_version_func\r\n");
+			//PutUARTBytes("AT+EVERN");
+			printf("AT+EVERN\r\n");
+			nrf_delay_ms(10000);
+//			uint8_t data_buffer[512] = {0};
+//			char *data = NULL;
+//			data = (char *)malloc(512);
+//			//char str_buff[] = "V1_00_00_M170815\r\n";
+//			char str_buff[] = "xxxxxxxxxxxxxxxxxx";
+//			uint8_t ret = uart_get_with_timeout(2,data,str_buff);
+//			if(ret == 1){				
+//				ble_nus_string_send(&m_nus, (uint8_t *)"V1_00_00_M170815", sizeof("V1_00_00_M170815"));
+//			}else{
+//				ble_nus_string_send(&m_nus, (uint8_t *)"ver:error", sizeof("ver:error"));
+//			}
+//			NRF_LOG_INFO("ret = %d\r\n",ret);
+
+//			NRF_LOG_INFO("data::%s\r\n",(uint32_t)data);
+			
+			//----------------------------------
+	
+		while(1){
+			uint8_t cmd_buffer[20] = {0};
+			uint8_t *p = get_uart_responese(cmd_buffer);
+			if(cmd_buffer[0] == 0){
+				NRF_LOG_INFO("get buff null \r\n");
+				NRF_LOG_FLUSH();
+				break;
+			}
+			NRF_LOG_INFO("data::%s\r\n",(uint32_t)cmd_buffer);
+			NRF_LOG_FLUSH();
+	
+			if(strstr((const char *)cmd_buffer, "_M") != NULL){
+				ble_nus_string_send(&m_nus, cmd_buffer, sizeof(cmd_buffer));
+				return CUSTOM_RSP_OK;
+			}
+		}
+//----------------------------------------------------------
+			//PutUARTBytes("AT+ESTARTFOTA"); //升级
+	
+//		uart_timeout = 0;
+//		xTimerStart(m_uart_timer, OSTIMER_WAIT_FOR_QUEUE);
+//		while(uart_timeout != 1){
+//			uint8_t cmd_buffer[20] = {0};
+//			get_uart_responese(cmd_buffer);
+//			NRF_LOG_INFO("xxx %s\r\n",(uint32_t)cmd_buffer);
+//			NRF_LOG_FLUSH();
+	//	xTimerStop(m_uart_timer, OSTIMER_WAIT_FOR_QUEUE);
+//		
+//		}
+//		NRF_LOG_INFO("custom_modem_version_over\r\n");
+//		NRF_LOG_FLUSH();
+//		if(cmd.part != 0)
+//			return CUSTOM_RSP_ERROR;
+//		NRF_LOG_INFO("version result =%d\r\n", result);
+//		//PutUARTBytes("AT+EVERN");
+//		PutUARTBytes("AT+EGETTIME");
+//		
+//		uint8_t cmd_buffer[20] = {0};
+//		uart_timeout = 0;
+//		xTimerStart(m_uart_timer, OSTIMER_WAIT_FOR_QUEUE);
+//		while(1){
+//			get_uart_responese(cmd_buffer);
+//			ble_nus_string_send(&m_nus, cmd_buffer, sizeof(cmd_buffer));
+//				return CUSTOM_RSP_ERROR;
+
+
+//		}		
+////		switch (result)
+//    {
+//				case CUSTOM_READ_MODE:
+//						PutUARTBytes("AT+EVERN");
+////						uint8_t cmd_buffer[20] = {0};
+////							while(1){
+////									get_uart_responese(cmd_buffer);
+////									if(strstr((const char *)cmd_buffer, "v") != NULL){
+////											ble_nus_string_send(&m_nus, cmd_buffer, sizeof(cmd_buffer));
+////									}
+////							}
+//						ret_value = CUSTOM_RSP_OK;
+//						break;
+//        default:
+//            ret_value = CUSTOM_RSP_ERROR;
+//            break;
+//		}
+//		
+		//return ret_value;
+}
+
+custom_rsp_type_enum custom_open_gps_func(custom_cmdLine *commandBuffer_p){
+	PutUARTBytes("AT+EGPSON");
+//	uint8_t data_buffer[512] = {0};
+//	char str_buff[] = "OK\r\n";
+//	uint8_t ret = uart_get_with_timeout(20,data_buffer,str_buff);
+//	if(ret == 1){
+//		ble_nus_string_send(&m_nus, (uint8_t *)"gps:open:sucess", sizeof("gps:open:sucess"));
+//	}else{
+//		ble_nus_string_send(&m_nus, (uint8_t *)"gps:open:fail", sizeof("gps:open:fail"));
+//	}
+//	NRF_LOG_INFO("ret = %d\r\n",ret);
+
+//	NRF_LOG_INFO("data::%s\r\n",(uint32_t)data_buffer);
+
+//	while(1){
+//			uint8_t cmd_buffer[30] = {0};
+//			get_uart_responese(cmd_buffer);
+//			NRF_LOG_INFO("%s\r\n", (uint32_t)cmd_buffer);
+//			if(strstr((const char *)cmd_buffer, "OK") != NULL){
+//				ble_nus_string_send(&m_nus, cmd_buffer, sizeof(cmd_buffer));
+//				return CUSTOM_RSP_OK;
+//			}else if(strstr((const char *)cmd_buffer, "ERROR") != NULL){
+//				ble_nus_string_send(&m_nus, cmd_buffer, sizeof(cmd_buffer));
+//				return CUSTOM_RSP_OK;
+//			}
+//		}
+}
+
+custom_rsp_type_enum custom_close_gps_func(custom_cmdLine *commandBuffer_p){
+	PutUARTBytes("AT+EGPSOFF");
+//	uint8_t data_buffer[512] = {0};
+//	char str_buff[] = "OK\r\n";
+//	uint8_t ret = uart_get_with_timeout(50,data_buffer,str_buff);
+//	if(ret == 1){
+//		ble_nus_string_send(&m_nus, (uint8_t *)"gps:close:sucess", sizeof("gps:close:sucess"));
+//	}else{
+//		ble_nus_string_send(&m_nus, (uint8_t *)"gps:close:fail", sizeof("gps:close:fail"));
+//	}
+//	NRF_LOG_INFO("ret = %d\r\n",ret);
+
+//	NRF_LOG_INFO("data::%s\r\n",(uint32_t)data_buffer);
+//	while(1){
+//			uint8_t cmd_buffer[30] = {0};
+//			get_uart_responese(cmd_buffer);
+//			NRF_LOG_INFO("%s\r\n", (uint32_t)cmd_buffer);
+//			if(strstr((const char *)cmd_buffer, "OK") != NULL){
+//				ble_nus_string_send(&m_nus, cmd_buffer, sizeof(cmd_buffer));
+//				return CUSTOM_RSP_OK;
+//			}else if(strstr((const char *)cmd_buffer, "ERROR") != NULL){
+//				ble_nus_string_send(&m_nus, cmd_buffer, sizeof(cmd_buffer));
+//				return CUSTOM_RSP_OK;
+//			}
+//		}
+}
+
+custom_rsp_type_enum custom_get_gps_data_func(custom_cmdLine *commandBuffer_p){
+	PutUARTBytes("AT+EGPSGET");
+}
+
 const custom_atcmd custom_cmd_table[ ] =
 {
 	{"AP+RSSI",custom_rssi_func},
 	{"AP+VOICE",custom_voice_func},
+	{"AP+MOD",custom_mod_func},
+	{"AP+SWVER",custom_modem_version_func},
+	{"AP+EGPSON",custom_open_gps_func},
+	{"AP+EGPSOFF",custom_close_gps_func},
+	{"AP+EGPSGET",custom_get_gps_data_func},
 	{NULL, NULL}
 };
 
 static bool app_data_hdlr(char *full_cmd_string,uint16_t length)
 {
 		char buffer[20];
-		uint8_t re_Data[] = "OK";
-		uint8_t re_Data1[] = "ERROR";
+//		uint8_t re_Data[] = "OK";
+//		uint8_t re_Data1[] = "ERROR";
 		char *cmd_name, *cmdString;
 		uint8_t index = 0; 
 		uint16_t i;
@@ -798,9 +1225,9 @@ static bool app_data_hdlr(char *full_cmd_string,uint16_t length)
 					command_line.length = strlen(command_line.character);
 					command_line.position = index;
 					if (custom_cmd_table[i].commandFunc(&command_line) == CUSTOM_RSP_OK) {
-								ble_nus_string_send(&m_nus, re_Data, sizeof(re_Data));
+							//	ble_nus_string_send(&m_nus, re_Data, sizeof(re_Data));
 						}else{
-								ble_nus_string_send(&m_nus, re_Data1, sizeof(re_Data1));
+							//	ble_nus_string_send(&m_nus, re_Data1, sizeof(re_Data1));
             }
 					return true;
 			}
@@ -822,8 +1249,9 @@ static bool app_data_hdlr(char *full_cmd_string,uint16_t length)
 static void nus_data_handler(ble_nus_t * p_nus, uint8_t * p_data, uint16_t length)
 {
 	/*收到手机的消息*/
-	//进行数据解析
+	//进行数据解析		
 			uint8_t *data = p_data;
+		//	NRF_LOG_INFO("data:%s length:%d\r\n",(uint32_t)p_data,length)
 			app_data_hdlr((char *)data, length);
 			memset(p_data, 0, sizeof(uint8_t)*length);
 //		NRF_LOG_INFO("data:%s    length:%d\r\n",(uint32_t)p_data,length)
@@ -1409,27 +1837,32 @@ static void advertising_init(void)
 /**@snippet [Handling the data received over UART] */
 void uart_event_handle(app_uart_evt_t * p_event)
 {
-    static uint8_t data_array[BLE_NUS_MAX_DATA_LEN];
-    static uint8_t index = 0;
-    uint32_t       err_code;
+//    static uint8_t data_array[256];
+//    static uint8_t index = 0;
+//    uint32_t       err_code;
 
     switch (p_event->evt_type)
     {
-        case APP_UART_DATA_READY:
-            UNUSED_VARIABLE(app_uart_get(&data_array[index]));
-            index++;
+//        case APP_UART_DATA_READY:
+//           UNUSED_VARIABLE(app_uart_get(&data_array[index]));
+//					NRF_LOG_INFO("%c\r\n",data_array[index]);
+//           index++;				
+//           if ((data_array[index - 1] == '\n') || (index >= (255)))
+//            {
+////							NRF_LOG_INFO("over.....!!!!!");
+//								NRF_LOG_INFO("%s\r\n",(uint32_t)data_array);
+//								NRF_LOG_FLUSH();
+//								memset(data_array,0, sizeof(data_array));
+//////									//PutUARTBytes("%s",data_array);
+////////                err_code = ble_nus_string_send(&m_nus, data_array, index);
+////////                if (err_code != NRF_ERROR_INVALID_STATE)
+////////                {
+////////                    APP_ERROR_CHECK(err_code);
+//////                }
 
-            if ((data_array[index - 1] == '\n') || (index >= (BLE_NUS_MAX_DATA_LEN)))
-            {
-                err_code = ble_nus_string_send(&m_nus, data_array, index);
-                if (err_code != NRF_ERROR_INVALID_STATE)
-                {
-                    APP_ERROR_CHECK(err_code);
-                }
-
-                index = 0;
-            }
-            break;
+//                index = 0;
+//            }
+//            break;
 
         case APP_UART_COMMUNICATION_ERROR:
             APP_ERROR_HANDLER(p_event->data.error_communication);
@@ -1478,6 +1911,11 @@ static void gpio_init(void)
 	nrf_gpio_cfg_output(VOICE_MOSE_PIN);
 	nrf_gpio_pin_write(VOICE_CHIP_PIN, 1);
 	nrf_gpio_pin_write(VOICE_MOSE_PIN, 1);
+	
+	//2G 初始化
+	nrf_gpio_cfg_output(MODME_CONTRL_PIN);
+	nrf_gpio_pin_write(MODME_CONTRL_PIN, 1);
+	
 }
 
 
@@ -1499,6 +1937,7 @@ static void ble_stack_thread(void * arg)
     timers_init();
 		gpio_init();
 		uart_init();
+		uart_onoff(0);
 	//init gpio te
 		err_code = nrf_drv_gpiote_init();
 		APP_ERROR_CHECK(err_code);
@@ -1512,12 +1951,21 @@ static void ble_stack_thread(void * arg)
 		//低电平到高电平
 			nrf_drv_gpiote_in_config_t in_config = GPIOTE_CONFIG_IN_SENSE_LOTOHI(true);
 		//任意电平变化
-		//nrf_drv_gpiote_in_config_t in_config = GPIOTE_CONFIG_IN_SENSE_TOGGLE(true);
+			nrf_drv_gpiote_in_config_t in_config1 = GPIOTE_CONFIG_IN_SENSE_TOGGLE(true);
 		//引脚上拉
 		in_config.pull = NRF_GPIO_PIN_PULLUP;
 		err_code = nrf_drv_gpiote_in_init(VOICE_CHECK_PIN, &in_config, in_pin_handler);
 		APP_ERROR_CHECK(err_code);
+		
+		in_config1.pull = NRF_GPIO_PIN_PULLUP;
+		err_code = nrf_drv_gpiote_in_init(MAC_CHECK_PIN1, &in_config1, in_pin_handler_test);
+		APP_ERROR_CHECK(err_code);
+		err_code = nrf_drv_gpiote_in_init(MAC_CHECK_PIN2, &in_config1, in_pin_handler_test);
+		APP_ERROR_CHECK(err_code);
+		
 		//使能GPIOTE 通道事件
+		nrf_drv_gpiote_in_event_enable(MAC_CHECK_PIN1,true);
+		nrf_drv_gpiote_in_event_enable(MAC_CHECK_PIN2,true);
 		nrf_drv_gpiote_in_event_enable(VOICE_CHECK_PIN,true);
 //    buttons_leds_init(&erase_bonds);
     ble_stack_init();
