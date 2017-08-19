@@ -6,6 +6,32 @@
 #ifdef USE_APP_CONFIG
 #include "app_config.h"
 #endif
+// <h> Application 
+
+//==========================================================
+// <o> NRF_BLE_CENTRAL_LINK_COUNT - Number of central links 
+#ifndef NRF_BLE_CENTRAL_LINK_COUNT
+#define NRF_BLE_CENTRAL_LINK_COUNT 0
+#endif
+
+// <o> NRF_BLE_CENTRAL_LINK_COUNT - Number of central links 
+#ifndef NRF_BLE_CENTRAL_LINK_COUNT
+#define NRF_BLE_CENTRAL_LINK_COUNT 0
+#endif
+
+// <o> NRF_BLE_PERIPHERAL_LINK_COUNT - Number of peripheral links 
+#ifndef NRF_BLE_PERIPHERAL_LINK_COUNT
+#define NRF_BLE_PERIPHERAL_LINK_COUNT 1
+#endif
+
+// <o> NRF_BLE_PERIPHERAL_LINK_COUNT - Number of peripheral links 
+#ifndef NRF_BLE_PERIPHERAL_LINK_COUNT
+#define NRF_BLE_PERIPHERAL_LINK_COUNT 1
+#endif
+
+// </h> 
+//==========================================================
+
 // <h> nRF_BLE 
 
 //==========================================================
@@ -30,6 +56,20 @@
 #define BLE_RACP_ENABLED 0
 #endif
 
+// <e> NRF_BLE_GATT_ENABLED - nrf_ble_gatt - GATT module
+//==========================================================
+#ifndef NRF_BLE_GATT_ENABLED
+#define NRF_BLE_GATT_ENABLED 1
+#endif
+#if  NRF_BLE_GATT_ENABLED
+// <o> NRF_BLE_GATT_MAX_MTU_SIZE - Static maximum MTU size that is passed to the @ref sd_ble_enable function. 
+#ifndef NRF_BLE_GATT_MAX_MTU_SIZE
+#define NRF_BLE_GATT_MAX_MTU_SIZE 158
+#endif
+
+#endif //NRF_BLE_GATT_ENABLED
+// </e>
+
 // <q> NRF_BLE_QWR_ENABLED  - nrf_ble_qwr - Queued writes support module (prepare/execute write)
  
 
@@ -41,7 +81,7 @@
  
 
 #ifndef PEER_MANAGER_ENABLED
-#define PEER_MANAGER_ENABLED 0
+#define PEER_MANAGER_ENABLED 1
 #endif
 
 // </h> 
@@ -75,7 +115,7 @@
  
 
 #ifndef BLE_BAS_ENABLED
-#define BLE_BAS_ENABLED 0
+#define BLE_BAS_ENABLED 1
 #endif
 
 // <q> BLE_CSCS_ENABLED  - ble_cscs - Cycling Speed and Cadence Service
@@ -96,7 +136,7 @@
  
 
 #ifndef BLE_DIS_ENABLED
-#define BLE_DIS_ENABLED 0
+#define BLE_DIS_ENABLED 1
 #endif
 
 // <q> BLE_GLS_ENABLED  - ble_gls - Glucose Service
@@ -131,7 +171,7 @@
  
 
 #ifndef BLE_HRS_ENABLED
-#define BLE_HRS_ENABLED 0
+#define BLE_HRS_ENABLED 1
 #endif
 
 // <q> BLE_HTS_ENABLED  - ble_hts - Health Thermometer Service
@@ -187,7 +227,7 @@
  
 
 #ifndef BLE_NUS_ENABLED
-#define BLE_NUS_ENABLED 1
+#define BLE_NUS_ENABLED 0
 #endif
 
 // <q> BLE_RSCS_C_ENABLED  - ble_rscs_c - Running Speed and Cadence Client
@@ -3022,13 +3062,6 @@
 // <h> nRF_Libraries 
 
 //==========================================================
-// <q> APP_FIFO_ENABLED  - app_fifo - Software FIFO implementation
- 
-
-#ifndef APP_FIFO_ENABLED
-#define APP_FIFO_ENABLED 1
-#endif
-
 // <q> APP_GPIOTE_ENABLED  - app_gpiote - GPIOTE events dispatcher
  
 
@@ -3102,7 +3135,7 @@
 // <e> APP_UART_ENABLED - app_uart - UART driver
 //==========================================================
 #ifndef APP_UART_ENABLED
-#define APP_UART_ENABLED 1
+#define APP_UART_ENABLED 0
 #endif
 #if  APP_UART_ENABLED
 // <o> APP_UART_DRIVER_INSTANCE  - UART instance used
@@ -3162,7 +3195,7 @@
  
 
 #ifndef CRC16_ENABLED
-#define CRC16_ENABLED 0
+#define CRC16_ENABLED 1
 #endif
 
 // <q> CRC32_ENABLED  - crc32 - CRC32 calculation routines
@@ -3182,7 +3215,7 @@
 // <e> FDS_ENABLED - fds - Flash data storage module
 //==========================================================
 #ifndef FDS_ENABLED
-#define FDS_ENABLED 0
+#define FDS_ENABLED 1
 #endif
 #if  FDS_ENABLED
 // <o> FDS_OP_QUEUE_SIZE - Size of the internal queue. 
@@ -3520,13 +3553,6 @@
 
 #ifndef NRF_QUEUE_ENABLED
 #define NRF_QUEUE_ENABLED 0
-#endif
-
-// <q> RETARGET_ENABLED  - retarget - Retargeting stdio functions
- 
-
-#ifndef RETARGET_ENABLED
-#define RETARGET_ENABLED 1
 #endif
 
 // <q> SLIP_ENABLED  - slip - SLIP encoding decoding

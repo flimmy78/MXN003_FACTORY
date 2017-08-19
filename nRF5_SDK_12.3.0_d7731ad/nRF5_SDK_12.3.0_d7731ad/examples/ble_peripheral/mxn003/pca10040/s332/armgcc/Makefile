@@ -1,11 +1,11 @@
-PROJECT_NAME     := ble_app_hrs_pca10056_s132
-TARGETS          := nrf52840_xxaa
+PROJECT_NAME     := ble_app_hrs_pca10040_s332
+TARGETS          := nrf52832_xxaa
 OUTPUT_DIRECTORY := _build
 
 SDK_ROOT := ../../../../../..
 PROJ_DIR := ../../..
 
-$(OUTPUT_DIRECTORY)/nrf52840_xxaa.out: \
+$(OUTPUT_DIRECTORY)/nrf52832_xxaa.out: \
   LINKER_SCRIPT  := ble_app_hrs_gcc_nrf52.ld
 
 # Source files common to all targets
@@ -55,8 +55,8 @@ SRC_FILES += \
   $(SDK_ROOT)/components/ble/peer_manager/pm_mutex.c \
   $(SDK_ROOT)/components/ble/peer_manager/security_dispatcher.c \
   $(SDK_ROOT)/components/ble/peer_manager/security_manager.c \
-  $(SDK_ROOT)/components/toolchain/gcc/gcc_startup_nrf52840.S \
-  $(SDK_ROOT)/components/toolchain/system_nrf52840.c \
+  $(SDK_ROOT)/components/toolchain/gcc/gcc_startup_nrf52.S \
+  $(SDK_ROOT)/components/toolchain/system_nrf52.c \
   $(SDK_ROOT)/components/ble/ble_services/ble_bas/ble_bas.c \
   $(SDK_ROOT)/components/ble/ble_services/ble_dis/ble_dis.c \
   $(SDK_ROOT)/components/ble/ble_services/ble_hrs/ble_hrs.c \
@@ -69,7 +69,6 @@ INC_FOLDERS += \
   $(SDK_ROOT)/components/ble/ble_services/ble_ancs_c \
   $(SDK_ROOT)/components/ble/ble_services/ble_ias_c \
   $(SDK_ROOT)/components/libraries/pwm \
-  $(SDK_ROOT)/components/softdevice/s132/headers/nrf52 \
   $(SDK_ROOT)/components/libraries/usbd/class/cdc/acm \
   $(SDK_ROOT)/components/libraries/usbd/class/hid/generic \
   $(SDK_ROOT)/components/libraries/usbd/class/msc \
@@ -86,6 +85,7 @@ INC_FOLDERS += \
   $(SDK_ROOT)/components/drivers_nrf/adc \
   $(SDK_ROOT)/components/ble/ble_services/ble_bas_c \
   $(SDK_ROOT)/components/ble/ble_services/ble_hrs_c \
+  $(SDK_ROOT)/components/softdevice/s332/headers/nrf52 \
   $(SDK_ROOT)/components/libraries/queue \
   $(SDK_ROOT)/components/ble/ble_dtm \
   $(SDK_ROOT)/components/toolchain/cmsis/include \
@@ -97,7 +97,6 @@ INC_FOLDERS += \
   $(SDK_ROOT)/components/libraries/bsp \
   $(SDK_ROOT)/components/ble/ble_services/ble_bas \
   $(SDK_ROOT)/components/libraries/experimental_section_vars \
-  $(SDK_ROOT)/components/softdevice/s132/headers \
   $(SDK_ROOT)/components/ble/ble_services/ble_ans_c \
   $(SDK_ROOT)/components/libraries/slip \
   $(SDK_ROOT)/components/libraries/mem_manager \
@@ -106,6 +105,7 @@ INC_FOLDERS += \
   $(SDK_ROOT)/components/drivers_nrf/hal \
   $(SDK_ROOT)/components/ble/ble_services/ble_nus_c \
   $(SDK_ROOT)/components/drivers_nrf/rtc \
+  $(SDK_ROOT)/components/softdevice/s332/headers \
   $(SDK_ROOT)/components/ble/ble_services/ble_ias \
   $(SDK_ROOT)/components/libraries/usbd/class/hid/mouse \
   $(SDK_ROOT)/components/drivers_nrf/ppi \
@@ -172,14 +172,25 @@ INC_FOLDERS += \
 LIB_FILES += \
 
 # C flags common to all targets
-CFLAGS += -DNRF52840_XXAA
+CFLAGS += -DNRF52_PAN_55
+CFLAGS += -DNRF52_PAN_12
+CFLAGS += -DNRF52_PAN_15
+CFLAGS += -DNRF52_PAN_58
 CFLAGS += -DSWI_DISABLE0
-CFLAGS += -DSOFTDEVICE_PRESENT
-CFLAGS += -DBLE_STACK_SUPPORT_REQD
+CFLAGS += -DNRF52_PAN_20
+CFLAGS += -DNRF52_PAN_54
+CFLAGS += -DNRF52
+CFLAGS += -DNRF52_PAN_51
+CFLAGS += -DNRF52_PAN_36
 CFLAGS += -DCONFIG_GPIO_AS_PINRESET
+CFLAGS += -DNRF52_PAN_64
+CFLAGS += -DS332
 CFLAGS += -D__HEAP_SIZE=0
-CFLAGS += -DS132
-CFLAGS += -DBOARD_PCA10056
+CFLAGS += -DNRF52832
+CFLAGS += -DBLE_STACK_SUPPORT_REQD
+CFLAGS += -DSOFTDEVICE_PRESENT
+CFLAGS += -DBOARD_PCA10040
+CFLAGS += -DNRF52_PAN_31
 CFLAGS += -DNRF_SD_BLE_API_VERSION=3
 CFLAGS += -mcpu=cortex-m4
 CFLAGS += -mthumb -mabi=aapcs
@@ -194,14 +205,25 @@ CXXFLAGS += \
 
 # Assembler flags common to all targets
 ASMFLAGS += -x assembler-with-cpp
-ASMFLAGS += -DNRF52840_XXAA
+ASMFLAGS += -DNRF52_PAN_55
+ASMFLAGS += -DNRF52_PAN_12
+ASMFLAGS += -DNRF52_PAN_15
+ASMFLAGS += -DNRF52_PAN_58
 ASMFLAGS += -DSWI_DISABLE0
-ASMFLAGS += -DSOFTDEVICE_PRESENT
-ASMFLAGS += -DBLE_STACK_SUPPORT_REQD
+ASMFLAGS += -DNRF52_PAN_20
+ASMFLAGS += -DNRF52_PAN_54
+ASMFLAGS += -DNRF52
+ASMFLAGS += -DNRF52_PAN_51
+ASMFLAGS += -DNRF52_PAN_36
 ASMFLAGS += -DCONFIG_GPIO_AS_PINRESET
+ASMFLAGS += -DNRF52_PAN_64
+ASMFLAGS += -DS332
 ASMFLAGS += -D__HEAP_SIZE=0
-ASMFLAGS += -DS132
-ASMFLAGS += -DBOARD_PCA10056
+ASMFLAGS += -DNRF52832
+ASMFLAGS += -DBLE_STACK_SUPPORT_REQD
+ASMFLAGS += -DSOFTDEVICE_PRESENT
+ASMFLAGS += -DBOARD_PCA10040
+ASMFLAGS += -DNRF52_PAN_31
 ASMFLAGS += -DNRF_SD_BLE_API_VERSION=3
 
 # Linker flags
@@ -214,15 +236,15 @@ LDFLAGS += -Wl,--gc-sections
 LDFLAGS += --specs=nano.specs -lc -lnosys
 
 
-.PHONY: $(TARGETS) default all clean help flash flash_softdevice
+.PHONY: $(TARGETS) default all clean help flash 
 
 # Default target - first one defined
-default: nrf52840_xxaa
+default: nrf52832_xxaa
 
 # Print all targets that can be built
 help:
 	@echo following targets are available:
-	@echo 	nrf52840_xxaa
+	@echo 	nrf52832_xxaa
 
 TEMPLATE_PATH := $(SDK_ROOT)/components/toolchain/gcc
 
@@ -231,15 +253,9 @@ include $(TEMPLATE_PATH)/Makefile.common
 $(foreach target, $(TARGETS), $(call define_target, $(target)))
 
 # Flash the program
-flash: $(OUTPUT_DIRECTORY)/nrf52840_xxaa.hex
+flash: $(OUTPUT_DIRECTORY)/nrf52832_xxaa.hex
 	@echo Flashing: $<
 	nrfjprog --program $< -f nrf52 --sectorerase
-	nrfjprog --reset -f nrf52
-
-# Flash softdevice
-flash_softdevice:
-	@echo Flashing: s132_nrf52_3.0.0_softdevice.hex
-	nrfjprog --program $(SDK_ROOT)/components/softdevice/s132/hex/s132_nrf52_3.0.0_softdevice.hex -f nrf52 --sectorerase 
 	nrfjprog --reset -f nrf52
 
 erase:
