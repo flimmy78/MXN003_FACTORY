@@ -55,6 +55,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdarg.h>
 
 #include "nordic_common.h"
 #include "nrf.h"
@@ -87,6 +88,9 @@
 
 #include "ble_dis.h"
 #include "ble_nus.h"
+#include "app_cmd.h"
+#include "app_uart.h"
+#include "nrf_delay.h"
 
 #define IS_SRVC_CHANGED_CHARACT_PRESENT 1                                           /**< Include or not the service_changed characteristic. if not enabled, the server's database cannot be changed for the lifetime of the device*/
 
@@ -126,6 +130,9 @@
 #define SEC_PARAM_MAX_KEY_SIZE          16                                          /**< Maximum encryption key size. */
 
 #define DEAD_BEEF                       0xDEADBEEF                                  /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
+
+#define UART_TX_BUF_SIZE                256                                         /**< UART TX buffer size. */
+#define UART_RX_BUF_SIZE                256                                         /**< UART RX buffer size. */
 
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;                            /**< Handle of the current connection. */
 
@@ -334,10 +341,169 @@ static void gap_params_init(void)
             break;
     }
    }*/
+	 static void U_PutUARTBytes(uint8_t *data,uint16_t len)
+{
+   uint16_t index;
+
+   for(index = 0; index < len; index++)
+			while(app_uart_put(*(data+index)) != NRF_SUCCESS);
+}
+
+static void U_PutUARTByte(char * fmt, int size){
+	U_PutUARTBytes((uint8_t*)fmt, size);
+	U_PutUARTBytes((uint8_t*)"\r\n", 2);
+}
+
+
+static void PutUARTBytes(const char *fmt, ...)
+{
+    static char logCbuf[1024];
+    va_list args;
+    char *p;
+    int n, m;
+
+    memset(logCbuf, 0, 1024);
+    p = logCbuf;
+    m = 1020;
+    va_start(args, fmt);
+    n = vsnprintf(p, m, fmt, args);
+    va_end(args);
+
+    U_PutUARTByte(logCbuf, n);
+}
+
+static void uart_getline(uint8_t * line,uint32_t timeout)
+{
+    uint8_t i = 0, ch = 0;
+    uint32_t err_code;
+
+		do {
+			err_code = app_uart_get(&ch);
+			if (NRF_ERROR_NOT_FOUND == err_code)
+			{
+					if(timeout-- > 0){
+						nrf_delay_ms(1000);
+						sd_app_evt_wait();
+					}else{
+						break;
+					}
+			}
+			else if (NRF_SUCCESS == err_code)   
+			{
+				line[i++] = ch;
+			}
+			else
+			{
+				APP_ERROR_CHECK(err_code);
+			}
+		}
+		while (ch != '\n');
+}
+
+
+static void get_uart_responese(uint8_t * command_buffer)
+{
+		uart_getline(command_buffer,3);
+}
+
+static void uart_enable(int8_t on)
+{
+	if(1 == on){
+	 NRF_UART0->ENABLE        = (UART_ENABLE_ENABLE_Enabled << UART_ENABLE_ENABLE_Pos);
+   NRF_UART0->TASKS_STARTRX = 1;
+   NRF_UART0->TASKS_STARTTX = 1;
+	}else{
+		NRF_UART0->TASKS_STOPTX = 1;
+		NRF_UART0->TASKS_STOPRX = 1;
+		NRF_UART0->ENABLE       = (UART_ENABLE_ENABLE_Disabled << UART_ENABLE_ENABLE_Pos);
+	}
+}
+
+custom_rsp_type_enum custom_mod_func(custom_cmdLine *commandBuffer_p){
+	
+	NRF_LOG_INFO("custom_mod_func\r\n");
+	nrf_gpio_pin_write(MODME_CONTRL_PIN, 0);
+	uart_enable(1);
+	nrf_delay_ms(200);
+	//PutUARTBytes("AT+EVERN");
+	//ble_nus_string_send(&m_nus,	(uint8_t *)"custom_mod_func", sizeof("custom_mod_func"));
+	
+		while(1){
+			uint8_t cmd_buffer[20] = {0};
+			get_uart_responese(cmd_buffer);
+			if(cmd_buffer[0] == 0){
+				NRF_LOG_INFO("get buff null \r\n");
+				NRF_LOG_FLUSH();
+				break;
+			}
+			NRF_LOG_INFO("data::%s\r\n",(uint32_t)cmd_buffer);
+			NRF_LOG_FLUSH();
+	
+			if(strstr((const char *)cmd_buffer, "xfdf") != NULL){
+				ble_nus_string_send(&m_nus, cmd_buffer, sizeof(cmd_buffer));
+				return CUSTOM_RSP_OK;
+			}
+		}
+			
+	return CUSTOM_RSP_OK;
+}
+
+const custom_atcmd custom_cmd_table[ ] =
+{
+	//{"AP+VOICE",custom_voice_func},
+	{"AP+MOD",custom_mod_func},
+//	{"AP+SWVER",custom_modem_version_func},
+//	{"AP+EGPSON",custom_open_gps_func},
+//	{"AP+EGPSOFF",custom_close_gps_func},
+//	{"AP+EGPSGET",custom_get_gps_data_func},
+	{NULL, NULL}
+};
+
+static bool app_data_hdlr(char *full_cmd_string,uint16_t length)
+{
+		char buffer[20];
+		char *cmd_name, *cmdString;
+		uint8_t index = 0; 
+		uint16_t i;
+		custom_cmdLine command_line;
+		cmd_name = buffer;
+		length = length > 20 ? 20 : length;  
+	
+		while ((full_cmd_string[index] != '=' ) &&  //might be TEST command or EXE command
+				(full_cmd_string[index] != '?' ) && // might be READ command
+				(full_cmd_string[index] != 13 ) && //carriage return
+		index < length)  
+		{
+			cmd_name[index] = full_cmd_string[index] ;
+			index ++;
+		}
+		cmd_name[index] = '\0' ;  
+		
+		for (i = 0 ; custom_cmd_table[i].commandString != NULL; i++ )
+		{
+			cmdString = custom_cmd_table[i].commandString;
+			if (strcmp(cmd_name, cmdString) == 0 ){
+					strncpy(command_line.character, full_cmd_string, 20);
+					command_line.character[19] = '\0';
+					command_line.length = strlen(command_line.character);
+					command_line.position = index;
+					if (custom_cmd_table[i].commandFunc(&command_line) == CUSTOM_RSP_OK) {
+							//	ble_nus_string_send(&m_nus, re_Data, sizeof(re_Data));
+						}else{
+							//	ble_nus_string_send(&m_nus, re_Data1, sizeof(re_Data1));
+            }
+					return true;
+			}
+		}
+		
+		return true;
+		
+}
 
 static void nus_data_handler(ble_nus_t * p_nus, uint8_t * p_data, uint16_t length)
 {
-	NRF_LOG_INFO("xxx:%s\r\n",(uint32_t)p_data)
+		app_data_hdlr((char *)p_data, length);
+		memset(p_data, 0, sizeof(uint8_t)*length);
 }
 /**@brief Function for initializing services that will be used by the application.
  */
@@ -700,40 +866,40 @@ static void peer_manager_init(bool erase_bonds)
  *
  * @param[in]   event   Event generated when button is pressed.
  */
-static void bsp_event_handler(bsp_event_t event)
-{
-    uint32_t err_code;
+//static void bsp_event_handler(bsp_event_t event)
+//{
+//    uint32_t err_code;
 
-    switch (event)
-    {
-        case BSP_EVENT_SLEEP:
-            sleep_mode_enter();
-            break; // BSP_EVENT_SLEEP
+//    switch (event)
+//    {
+//        case BSP_EVENT_SLEEP:
+//            sleep_mode_enter();
+//            break; // BSP_EVENT_SLEEP
 
-        case BSP_EVENT_DISCONNECT:
-            err_code = sd_ble_gap_disconnect(m_conn_handle,
-                                             BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
-            if (err_code != NRF_ERROR_INVALID_STATE)
-            {
-                APP_ERROR_CHECK(err_code);
-            }
-            break; // BSP_EVENT_DISCONNECT
+//        case BSP_EVENT_DISCONNECT:
+//            err_code = sd_ble_gap_disconnect(m_conn_handle,
+//                                             BLE_HCI_REMOTE_USER_TERMINATED_CONNECTION);
+//            if (err_code != NRF_ERROR_INVALID_STATE)
+//            {
+//                APP_ERROR_CHECK(err_code);
+//            }
+//            break; // BSP_EVENT_DISCONNECT
 
-        case BSP_EVENT_WHITELIST_OFF:
-            if (m_conn_handle == BLE_CONN_HANDLE_INVALID)
-            {
-                err_code = ble_advertising_restart_without_whitelist();
-                if (err_code != NRF_ERROR_INVALID_STATE)
-                {
-                    APP_ERROR_CHECK(err_code);
-                }
-            }
-            break; // BSP_EVENT_KEY_0
+//        case BSP_EVENT_WHITELIST_OFF:
+//            if (m_conn_handle == BLE_CONN_HANDLE_INVALID)
+//            {
+//                err_code = ble_advertising_restart_without_whitelist();
+//                if (err_code != NRF_ERROR_INVALID_STATE)
+//                {
+//                    APP_ERROR_CHECK(err_code);
+//                }
+//            }
+//            break; // BSP_EVENT_KEY_0
 
-        default:
-            break;
-    }
-}
+//        default:
+//            break;
+//    }
+//}
 
 
 /**@brief Function for initializing the Advertising functionality.
@@ -763,25 +929,25 @@ static void advertising_init(void)
 }
 
 
-/**@brief Function for initializing buttons and leds.
- *
- * @param[out] p_erase_bonds  Will be true if the clear bonding button was pressed to wake the application up.
- */
-static void buttons_leds_init(bool * p_erase_bonds)
-{
-    bsp_event_t startup_event;
+///**@brief Function for initializing buttons and leds.
+// *
+// * @param[out] p_erase_bonds  Will be true if the clear bonding button was pressed to wake the application up.
+// */
+//static void buttons_leds_init(bool * p_erase_bonds)
+//{
+//    bsp_event_t startup_event;
 
-    uint32_t err_code = bsp_init(BSP_INIT_LED | BSP_INIT_BUTTONS,
-                                 APP_TIMER_TICKS(100, APP_TIMER_PRESCALER),
-                                 bsp_event_handler);
+//    uint32_t err_code = bsp_init(BSP_INIT_LED | BSP_INIT_BUTTONS,
+//                                 APP_TIMER_TICKS(100, APP_TIMER_PRESCALER),
+//                                 bsp_event_handler);
 
-    APP_ERROR_CHECK(err_code);
+//    APP_ERROR_CHECK(err_code);
 
-    err_code = bsp_btn_ble_init(NULL, &startup_event);
-    APP_ERROR_CHECK(err_code);
+//    err_code = bsp_btn_ble_init(NULL, &startup_event);
+//    APP_ERROR_CHECK(err_code);
 
-    *p_erase_bonds = (startup_event == BSP_EVENT_CLEAR_BONDING_DATA);
-}
+//    *p_erase_bonds = (startup_event == BSP_EVENT_CLEAR_BONDING_DATA);
+//}
 
 
 /**@brief Function for the Power manager.
@@ -803,6 +969,93 @@ static void advertising_start(void)
     APP_ERROR_CHECK(err_code);
 }
 
+/**@brief   Function for handling app_uart events.
+ *
+ * @details This function will receive a single character from the app_uart module and append it to
+ *          a string. The string will be be sent over BLE when the last character received was a
+ *          'new line' i.e '\r\n' (hex 0x0D) or if the string has reached a length of
+ *          @ref NUS_MAX_DATA_LENGTH.
+ */
+/**@snippet [Handling the data received over UART] */
+void uart_event_handle(app_uart_evt_t * p_event)
+{
+//    static uint8_t data_array[256];
+//    static uint8_t index = 0;
+//    uint32_t       err_code;
+
+    switch (p_event->evt_type)
+    {
+//        case APP_UART_DATA_READY:
+//           UNUSED_VARIABLE(app_uart_get(&data_array[index]));
+//					NRF_LOG_INFO("%c\r\n",data_array[index]);
+//           index++;				
+//           if ((data_array[index - 1] == '\n') || (index >= (255)))
+//            {
+////							NRF_LOG_INFO("over.....!!!!!");
+//								NRF_LOG_INFO("%s\r\n",(uint32_t)data_array);
+//								NRF_LOG_FLUSH();
+//								memset(data_array,0, sizeof(data_array));
+//////									//PutUARTBytes("%s",data_array);
+////////                err_code = ble_nus_string_send(&m_nus, data_array, index);
+////////                if (err_code != NRF_ERROR_INVALID_STATE)
+////////                {
+////////                    APP_ERROR_CHECK(err_code);
+//////                }
+
+//                index = 0;
+//            }
+//            break;
+
+        case APP_UART_COMMUNICATION_ERROR:
+            APP_ERROR_HANDLER(p_event->data.error_communication);
+            break;
+
+        case APP_UART_FIFO_ERROR:
+            APP_ERROR_HANDLER(p_event->data.error_code);
+            break;
+
+        default:
+            break;
+    }
+}
+/**@snippet [Handling the data received over UART] */
+
+
+/**@brief  Function for initializing the UART module.
+ */
+/**@snippet [UART Initialization] */
+static void uart_init(void)
+{
+    uint32_t                     err_code;
+    const app_uart_comm_params_t comm_params =
+    {
+        RX_PIN_NUMBER,
+        TX_PIN_NUMBER,
+        RTS_PIN_NUMBER,
+        CTS_PIN_NUMBER,
+        APP_UART_FLOW_CONTROL_DISABLED,
+        false,
+        UART_BAUDRATE_BAUDRATE_Baud115200
+    };
+
+    APP_UART_FIFO_INIT( &comm_params,
+                       UART_RX_BUF_SIZE,
+                       UART_TX_BUF_SIZE,
+                       uart_event_handle,
+                       APP_IRQ_PRIORITY_LOWEST,
+                       err_code);
+    APP_ERROR_CHECK(err_code);
+}
+/**@snippet [UART Initialization] */
+
+/**@brief Function for pcba gpio init.
+ */
+static void gpio_init(void)
+{
+	//2G ≥ı ºªØ
+	nrf_gpio_cfg_output(MODME_CONTRL_PIN);
+	nrf_gpio_pin_write(MODME_CONTRL_PIN, 1);
+}
 
 /**@brief Function for application main entry.
  */
@@ -814,9 +1067,11 @@ int main(void)
     // Initialize.
     err_code = NRF_LOG_INIT(NULL);
     APP_ERROR_CHECK(err_code);
-
+		gpio_init();
     timers_init();
-    buttons_leds_init(&erase_bonds);
+		uart_init();
+		uart_enable(0);
+//    buttons_leds_init(&erase_bonds);
     ble_stack_init();
     peer_manager_init(erase_bonds);
     if (erase_bonds == true)

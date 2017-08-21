@@ -203,12 +203,12 @@ static void uart_getline(uint8_t * line,uint32_t timeout)
 			err_code = app_uart_get(&ch);
 			if (NRF_ERROR_NOT_FOUND == err_code)
 			{
-					if(timeout-- > 0){
-						nrf_delay_ms(1000);
+					//if(timeout-- > 0){
+						//nrf_delay_ms(1000);
 						sd_app_evt_wait();
-					}else{
-						break;
-					}
+					//}else{
+						//break;
+					//}
 			}
 			else if (NRF_SUCCESS == err_code)   
 			{
@@ -224,7 +224,7 @@ static void uart_getline(uint8_t * line,uint32_t timeout)
 
 static uint8_t* get_uart_responese(uint8_t * command_buffer)
 {
-		uart_getline(command_buffer,5);
+		uart_getline(command_buffer,1);
 		
 		return command_buffer;
 }
@@ -946,6 +946,62 @@ int  uart_get_with_timeout(int32_t timeout_ms, char * rx_data, char *des_str)
 		while (1);
 }
 
+int wait_data_reponse(char *putdata1, char *putdata2, char * compardata1, char* compardata2)
+{
+		char *p_data = NULL;
+		p_data = malloc(256);
+		if(p_data == NULL){
+			NRF_LOG_INFO("malloc fail!!!\r\n");
+			return -1;
+		}
+	
+		while(1){
+			memset(p_data,0,256);
+			get_uart_responese((uint8_t *)p_data);
+			if(p_data[0] == 0){
+				NRF_LOG_INFO("get buff null \r\n");
+				NRF_LOG_FLUSH();
+				ble_nus_string_send(&m_nus, (uint8_t *)"send_data_fail", strlen((char *)"send_data_fail"));
+				free(p_data);
+				p_data = NULL;
+				break;
+			}
+			NRF_LOG_INFO("data-->%s\r\n",(uint32_t)p_data);
+			NRF_LOG_FLUSH();
+			
+			if(putdata1 == NULL){
+				putdata1 = p_data;
+			}
+			if(putdata2 == NULL){
+				putdata2 = p_data;
+			}
+			
+					
+			if(strstr((const char *)p_data, (const char *)compardata1) != NULL){
+				int data_len =  strlen((char *)putdata1);
+				if(data_len <= 20){
+					ble_nus_string_send(&m_nus,(uint8_t *)putdata1, data_len);
+				}else{
+					ble_nus_string_send(&m_nus,(uint8_t *)putdata1, 20);
+					if(data_len - 20 <= 20){
+						ble_nus_string_send(&m_nus,(uint8_t *)putdata1+20, data_len - 20);
+					}else{
+						ble_nus_string_send(&m_nus,(uint8_t *)putdata1+20, 20);
+					}
+				}
+				free(p_data);
+				p_data = NULL;
+				return 1;
+			}else if(strstr((const char *)p_data, (const char *)compardata2) != NULL){
+				ble_nus_string_send(&m_nus,(uint8_t *)putdata2, strlen((char *)putdata2));
+				free(p_data);
+				p_data = NULL;
+				return 1;
+			}
+		}
+		
+		return 2;
+}
 
 custom_rsp_type_enum custom_mod_func(custom_cmdLine *commandBuffer_p){
 		custom_cmd_mode_enum result;
@@ -963,56 +1019,12 @@ custom_rsp_type_enum custom_mod_func(custom_cmdLine *commandBuffer_p){
 						if(1 == status){
 							nrf_gpio_pin_write(MODME_CONTRL_PIN, 0);
 							uart_onoff(1);
-							nrf_delay_ms(2000);
-							uint8_t data_buffer[512] = {0};
-							char str_buff[] = "+EUSIM: 1\r\n";
-			
-							uint8_t ret = uart_get_with_timeout(0,data_buffer,str_buff);
-							if(ret == 1){
-								ble_nus_string_send(&m_nus, (uint8_t *)"modem:open:sucess", sizeof("modem:open:sucess"));
-							}else{
-								ble_nus_string_send(&m_nus, (uint8_t *)"modem:open:fail", sizeof("modem:open:fail"));
-							}
-							NRF_LOG_INFO("ret = %d\r\n",ret);
-							
-							NRF_LOG_INFO("data::%s\r\n",(uint32_t)data_buffer);
-		//--------------------------------------------					
-							
-//							uint8_t p;
-//							while(1){
-//							bool ret = uart_get_with_timeout(10,&p);
-//								if(ret == false)
-//									break;
-//							
-//							NRF_LOG_INFO("%c\r\n",p);
-//							NRF_LOG_FLUSH();
-//							}
-						//	wait_reponse("+EUSIM",20);
-//							uint8_t cmd_buffer[10] = {0};
-//							while(1){
-//								get_uart_responese(cmd_buffer);
-//								NRF_LOG_INFO("data:%s  |||| size=%d\r\n", (uint32_t)cmd_buffer,sizeof(cmd_buffer));
-//								if(strstr((const char *)cmd_buffer, "+EUSIM: 1") != NULL){
-//									ble_nus_string_send(&m_nus, "modem_open", 10);
-//									return CUSTOM_RSP_OK;
-//								}
-//							}
-							//int ret = wait_reponse("+EUSIM",3);
-							//NRF_LOG_INFO("xxxret = %d\r\n", ret);
-//							uint8_t cmd_buffer[20] = {0};
-//							uart_timeout = 0;
-//							xTimerStart(m_uart_timer, OSTIMER_WAIT_FOR_QUEUE);
-//							while(1){
-//									get_uart_responese(cmd_buffer);
-//									if(strstr((const char *)cmd_buffer, "+EUSIM") != NULL){
-//										ble_nus_string_send(&m_nus, "modem_open", 10);
-//										return CUSTOM_RSP_OK;
-//										}else if (uart_timeout == 1){
-//											ble_nus_string_send(&m_nus, "timeout", 7);
-//											return CUSTOM_RSP_OK;
-//										}
-//								}
-	
+//							nrf_delay_ms(2000);
+//							uint8_t ret = wait_data_reponse("modem:open:sucess",NULL,"+EUSIM: 1",NULL);
+//							if(ret == 1)
+//								ret_value = CUSTOM_RSP_OK;
+//							else
+//								ret_value = CUSTOM_RSP_ERROR;
 						}else{
 							uart_onoff(0);
 							nrf_gpio_pin_write(MODME_CONTRL_PIN, 1);
@@ -1029,157 +1041,32 @@ custom_rsp_type_enum custom_mod_func(custom_cmdLine *commandBuffer_p){
 }
 
 custom_rsp_type_enum custom_modem_version_func(custom_cmdLine *commandBuffer_p){
-//		custom_cmd_mode_enum result;
-//    custom_rsp_type_enum ret_value  = CUSTOM_RSP_ERROR;
-//    result = custom_find_cmd_mode(commandBuffer_p);
-//	
-//		cmd_data_struct cmd = at_get_at_para(commandBuffer_p);
-		//NRF_LOG_INFO("custom_modem_version_func\r\n");
-			//PutUARTBytes("AT+EVERN");
-			printf("AT+EVERN\r\n");
-			nrf_delay_ms(10000);
-//			uint8_t data_buffer[512] = {0};
-//			char *data = NULL;
-//			data = (char *)malloc(512);
-//			//char str_buff[] = "V1_00_00_M170815\r\n";
-//			char str_buff[] = "xxxxxxxxxxxxxxxxxx";
-//			uint8_t ret = uart_get_with_timeout(2,data,str_buff);
-//			if(ret == 1){				
-//				ble_nus_string_send(&m_nus, (uint8_t *)"V1_00_00_M170815", sizeof("V1_00_00_M170815"));
-//			}else{
-//				ble_nus_string_send(&m_nus, (uint8_t *)"ver:error", sizeof("ver:error"));
-//			}
-//			NRF_LOG_INFO("ret = %d\r\n",ret);
 
-//			NRF_LOG_INFO("data::%s\r\n",(uint32_t)data);
-			
-			//----------------------------------
-	
-		while(1){
-			uint8_t cmd_buffer[20] = {0};
-			uint8_t *p = get_uart_responese(cmd_buffer);
-			if(cmd_buffer[0] == 0){
-				NRF_LOG_INFO("get buff null \r\n");
-				NRF_LOG_FLUSH();
-				break;
-			}
-			NRF_LOG_INFO("data::%s\r\n",(uint32_t)cmd_buffer);
-			NRF_LOG_FLUSH();
-	
-			if(strstr((const char *)cmd_buffer, "_M") != NULL){
-				ble_nus_string_send(&m_nus, cmd_buffer, sizeof(cmd_buffer));
-				return CUSTOM_RSP_OK;
-			}
-		}
-//----------------------------------------------------------
-			//PutUARTBytes("AT+ESTARTFOTA"); //Éý¼¶
-	
-//		uart_timeout = 0;
-//		xTimerStart(m_uart_timer, OSTIMER_WAIT_FOR_QUEUE);
-//		while(uart_timeout != 1){
-//			uint8_t cmd_buffer[20] = {0};
-//			get_uart_responese(cmd_buffer);
-//			NRF_LOG_INFO("xxx %s\r\n",(uint32_t)cmd_buffer);
-//			NRF_LOG_FLUSH();
-	//	xTimerStop(m_uart_timer, OSTIMER_WAIT_FOR_QUEUE);
-//		
-//		}
-//		NRF_LOG_INFO("custom_modem_version_over\r\n");
-//		NRF_LOG_FLUSH();
-//		if(cmd.part != 0)
-//			return CUSTOM_RSP_ERROR;
-//		NRF_LOG_INFO("version result =%d\r\n", result);
-//		//PutUARTBytes("AT+EVERN");
-//		PutUARTBytes("AT+EGETTIME");
-//		
-//		uint8_t cmd_buffer[20] = {0};
-//		uart_timeout = 0;
-//		xTimerStart(m_uart_timer, OSTIMER_WAIT_FOR_QUEUE);
-//		while(1){
-//			get_uart_responese(cmd_buffer);
-//			ble_nus_string_send(&m_nus, cmd_buffer, sizeof(cmd_buffer));
-//				return CUSTOM_RSP_ERROR;
-
-
-//		}		
-////		switch (result)
-//    {
-//				case CUSTOM_READ_MODE:
-//						PutUARTBytes("AT+EVERN");
-////						uint8_t cmd_buffer[20] = {0};
-////							while(1){
-////									get_uart_responese(cmd_buffer);
-////									if(strstr((const char *)cmd_buffer, "v") != NULL){
-////											ble_nus_string_send(&m_nus, cmd_buffer, sizeof(cmd_buffer));
-////									}
-////							}
-//						ret_value = CUSTOM_RSP_OK;
-//						break;
-//        default:
-//            ret_value = CUSTOM_RSP_ERROR;
-//            break;
-//		}
-//		
-		//return ret_value;
+			PutUARTBytes("AT+EVERN\r\n");
+			nrf_delay_ms(100);
+			wait_data_reponse(NULL,NULL,"_M",NULL);
+			return  CUSTOM_RSP_OK;
 }
 
 custom_rsp_type_enum custom_open_gps_func(custom_cmdLine *commandBuffer_p){
-	PutUARTBytes("AT+EGPSON");
-//	uint8_t data_buffer[512] = {0};
-//	char str_buff[] = "OK\r\n";
-//	uint8_t ret = uart_get_with_timeout(20,data_buffer,str_buff);
-//	if(ret == 1){
-//		ble_nus_string_send(&m_nus, (uint8_t *)"gps:open:sucess", sizeof("gps:open:sucess"));
-//	}else{
-//		ble_nus_string_send(&m_nus, (uint8_t *)"gps:open:fail", sizeof("gps:open:fail"));
-//	}
-//	NRF_LOG_INFO("ret = %d\r\n",ret);
-
-//	NRF_LOG_INFO("data::%s\r\n",(uint32_t)data_buffer);
-
-//	while(1){
-//			uint8_t cmd_buffer[30] = {0};
-//			get_uart_responese(cmd_buffer);
-//			NRF_LOG_INFO("%s\r\n", (uint32_t)cmd_buffer);
-//			if(strstr((const char *)cmd_buffer, "OK") != NULL){
-//				ble_nus_string_send(&m_nus, cmd_buffer, sizeof(cmd_buffer));
-//				return CUSTOM_RSP_OK;
-//			}else if(strstr((const char *)cmd_buffer, "ERROR") != NULL){
-//				ble_nus_string_send(&m_nus, cmd_buffer, sizeof(cmd_buffer));
-//				return CUSTOM_RSP_OK;
-//			}
-//		}
+		PutUARTBytes("AT+EGPSON");
+//		nrf_delay_ms(100);
+//		wait_data_reponse("GPS:ON:SUCESS","GPS:ON:FAIL","OK","ERROR");	
+		return  CUSTOM_RSP_OK;
 }
 
 custom_rsp_type_enum custom_close_gps_func(custom_cmdLine *commandBuffer_p){
-	PutUARTBytes("AT+EGPSOFF");
-//	uint8_t data_buffer[512] = {0};
-//	char str_buff[] = "OK\r\n";
-//	uint8_t ret = uart_get_with_timeout(50,data_buffer,str_buff);
-//	if(ret == 1){
-//		ble_nus_string_send(&m_nus, (uint8_t *)"gps:close:sucess", sizeof("gps:close:sucess"));
-//	}else{
-//		ble_nus_string_send(&m_nus, (uint8_t *)"gps:close:fail", sizeof("gps:close:fail"));
-//	}
-//	NRF_LOG_INFO("ret = %d\r\n",ret);
-
-//	NRF_LOG_INFO("data::%s\r\n",(uint32_t)data_buffer);
-//	while(1){
-//			uint8_t cmd_buffer[30] = {0};
-//			get_uart_responese(cmd_buffer);
-//			NRF_LOG_INFO("%s\r\n", (uint32_t)cmd_buffer);
-//			if(strstr((const char *)cmd_buffer, "OK") != NULL){
-//				ble_nus_string_send(&m_nus, cmd_buffer, sizeof(cmd_buffer));
-//				return CUSTOM_RSP_OK;
-//			}else if(strstr((const char *)cmd_buffer, "ERROR") != NULL){
-//				ble_nus_string_send(&m_nus, cmd_buffer, sizeof(cmd_buffer));
-//				return CUSTOM_RSP_OK;
-//			}
-//		}
+		PutUARTBytes("AT+EGPSOFF");
+		nrf_delay_ms(100);
+//		wait_data_reponse("GPS:OFF:SUCESS","GPS:OFF:FAIL","OK","ERROR");	
+		return  CUSTOM_RSP_OK;
 }
 
 custom_rsp_type_enum custom_get_gps_data_func(custom_cmdLine *commandBuffer_p){
 	PutUARTBytes("AT+EGPSGET");
+	nrf_delay_ms(20);
+	wait_data_reponse(NULL,NULL,"+LOC","NULL");	
+	return  CUSTOM_RSP_OK;
 }
 
 const custom_atcmd custom_cmd_table[ ] =
@@ -1845,14 +1732,14 @@ void uart_event_handle(app_uart_evt_t * p_event)
     {
 //        case APP_UART_DATA_READY:
 //           UNUSED_VARIABLE(app_uart_get(&data_array[index]));
-//					NRF_LOG_INFO("%c\r\n",data_array[index]);
-//           index++;				
-//           if ((data_array[index - 1] == '\n') || (index >= (255)))
-//            {
-////							NRF_LOG_INFO("over.....!!!!!");
-//								NRF_LOG_INFO("%s\r\n",(uint32_t)data_array);
-//								NRF_LOG_FLUSH();
-//								memset(data_array,0, sizeof(data_array));
+//					 NRF_LOG_INFO("%c\r\n",data_array[index]);
+////           index++;				
+////           if ((data_array[index - 1] == '\n') || (index >= (255)))
+////            {
+////						//	NRF_LOG_INFO("over.....!!!!!");
+////								NRF_LOG_INFO("%s\r\n",(uint32_t)data_array);
+////								NRF_LOG_FLUSH();
+////								memset(data_array,0, sizeof(data_array));
 //////									//PutUARTBytes("%s",data_array);
 ////////                err_code = ble_nus_string_send(&m_nus, data_array, index);
 ////////                if (err_code != NRF_ERROR_INVALID_STATE)
@@ -1860,8 +1747,8 @@ void uart_event_handle(app_uart_evt_t * p_event)
 ////////                    APP_ERROR_CHECK(err_code);
 //////                }
 
-//                index = 0;
-//            }
+////                index = 0;
+////            }
 //            break;
 
         case APP_UART_COMMUNICATION_ERROR:
