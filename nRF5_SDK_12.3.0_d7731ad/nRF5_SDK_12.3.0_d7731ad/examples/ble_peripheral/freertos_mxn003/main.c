@@ -945,6 +945,50 @@ int  uart_get_with_timeout(int32_t timeout_ms, char * rx_data, char *des_str)
 		}
 		while (1);
 }
+typedef struct blk_send_msg_tag{
+	uint32_t start;
+	uint32_t max_len;
+	uint8_t  *pdata;
+}blk_send_msg;
+
+blk_send_msg g_send_msg;
+
+
+uint32_t ble_send_data(uint8_t *pdata, uint32_t len){
+
+		if (NULL == pdata || len <= 0){ return NRF_ERROR_INVALID_PARAM;}
+
+		uint8_t temp_len;
+    uint32_t err_code;
+    g_send_msg.start = 0;
+    g_send_msg.max_len = len;
+    g_send_msg.pdata = pdata;
+ 
+    temp_len = len>20 ? 20 : len;
+		err_code = ble_nus_string_send(&m_nus, pdata, temp_len);
+		if (NRF_SUCCESS == err_code){
+			g_send_msg.start += temp_len;
+		}
+		return err_code;
+}
+
+uint32_t ble_send_more_data(void)
+{
+	uint32_t err_code;
+	uint32_t dif_value;
+	
+	dif_value = g_send_msg.max_len - g_send_msg.start;
+	if (0 == dif_value || NULL == g_send_msg.pdata){ return NRF_SUCCESS; }
+	
+	
+	uint8_t temp_len;
+	temp_len = dif_value>20 ? 20 : dif_value;
+	err_code = ble_nus_string_send(&m_nus,g_send_msg.pdata + g_send_msg.start, temp_len);
+	if (NRF_SUCCESS == err_code){
+		g_send_msg.start += temp_len;
+		return err_code;
+	}
+}
 
 int wait_data_reponse(char *putdata1, char *putdata2, char * compardata1, char* compardata2)
 {
@@ -978,17 +1022,19 @@ int wait_data_reponse(char *putdata1, char *putdata2, char * compardata1, char* 
 			
 					
 			if(strstr((const char *)p_data, (const char *)compardata1) != NULL){
-				int data_len =  strlen((char *)putdata1);
-				if(data_len <= 20){
-					ble_nus_string_send(&m_nus,(uint8_t *)putdata1, data_len);
-				}else{
-					ble_nus_string_send(&m_nus,(uint8_t *)putdata1, 20);
-					if(data_len - 20 <= 20){
-						ble_nus_string_send(&m_nus,(uint8_t *)putdata1+20, data_len - 20);
-					}else{
-						ble_nus_string_send(&m_nus,(uint8_t *)putdata1+20, 20);
-					}
-				}
+				
+				ble_send_data((uint8_t *)putdata1,strlen((char *)putdata1));
+//				int data_len =  strlen((char *)putdata1);
+//				if(data_len <= 20){
+//					ble_nus_string_send(&m_nus,(uint8_t *)putdata1, data_len);
+//				}else{
+//					ble_nus_string_send(&m_nus,(uint8_t *)putdata1, 20);
+//					if(data_len - 20 <= 20){
+//						ble_nus_string_send(&m_nus,(uint8_t *)putdata1+20, data_len - 20);
+//					}else{
+//						ble_nus_string_send(&m_nus,(uint8_t *)putdata1+20, 20);
+//					}
+//				}
 				free(p_data);
 				p_data = NULL;
 				return 1;
@@ -1396,6 +1442,9 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
 
     switch (p_ble_evt->header.evt_id)
     {
+				case BLE_EVT_TX_COMPLETE:
+						ble_send_more_data();
+						break;
         case BLE_GAP_EVT_CONNECTED:
             NRF_LOG_INFO("Connected\r\n");
             err_code = bsp_indication_set(BSP_INDICATE_CONNECTED);
