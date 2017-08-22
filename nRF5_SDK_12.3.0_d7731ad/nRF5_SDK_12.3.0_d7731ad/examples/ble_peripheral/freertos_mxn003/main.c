@@ -204,7 +204,7 @@ static void uart_getline(uint8_t * line,uint32_t timeout)
 			if (NRF_ERROR_NOT_FOUND == err_code)
 			{
 					if(timeout-- > 0){
-						nrf_delay_ms(200);
+						nrf_delay_us(1000);
 						sd_app_evt_wait();
 					}else{
 						break;
@@ -1114,12 +1114,13 @@ custom_rsp_type_enum custom_mod_func(custom_cmdLine *commandBuffer_p){
 				case CUSTOM_SET_OR_EXECUTE_MODE:
 						if(1 == status){
 							nrf_gpio_pin_write(MODME_CONTRL_PIN, 0);
-							uart_onoff(1);
+							uart_onoff(1);	
+							nrf_delay_ms(2000);
 							wait_data_reponse1("+EUSIM:","\0");
-//							nrf_delay_ms(2000);
-//							uint8_t ret = wait_data_reponse("modem:open:sucess",NULL,"+EUSIM: 1",NULL);
+							//wait_data_reponse1("+EUSIM: 1","\0")
+							//uint8_t ret = wait_data_reponse("modem:open:sucess",NULL,"+EUSIM: 1",NULL);
 //							if(ret == 1)
-							ret_value = CUSTOM_RSP_OK;
+								ret_value = CUSTOM_RSP_OK;
 //							else
 //								ret_value = CUSTOM_RSP_ERROR;
 						}else{
@@ -1194,6 +1195,30 @@ custom_rsp_type_enum custom_check_epo_func(custom_cmdLine *commandBuffer_p){
 	return  CUSTOM_RSP_OK;
 }
 
+custom_rsp_type_enum custom_get_simn_func(custom_cmdLine *commandBuffer_p){
+	PutUARTBytes("AT+ESIMSN");
+	nrf_delay_ms(100);
+	wait_data_reponse1("IMEI:","IMSI:","ERROR","\0");
+	//wait_data_reponse(NULL,NULL,"+LOC","NULL");	
+	return  CUSTOM_RSP_OK;
+}
+
+custom_rsp_type_enum custom_gsm_test_func(custom_cmdLine *commandBuffer_p){
+	PutUARTBytes("AT+EGSMTEST");
+	nrf_delay_ms(100);
+	wait_data_reponse1("OK","ERROR","\0");
+	//wait_data_reponse(NULL,NULL,"+LOC","NULL");	
+	return  CUSTOM_RSP_OK;
+}
+
+custom_rsp_type_enum custom_gsm_test_read_func(custom_cmdLine *commandBuffer_p){
+	PutUARTBytes("AT+EGSMTESTR");
+	nrf_delay_ms(100);
+	wait_data_reponse1("BEST","ERROR","\0");
+	//wait_data_reponse(NULL,NULL,"+LOC","NULL");	
+	return  CUSTOM_RSP_OK;
+}
+
 const custom_atcmd custom_cmd_table[ ] =
 {
 	{"AP+VOICE",custom_voice_func},
@@ -1205,6 +1230,9 @@ const custom_atcmd custom_cmd_table[ ] =
 	{"AP+EGPSTEST",custom_gps_test_func},
 	{"AP+EGPSTESTR",custom_gps_test_read_func},
 	{"AP+ECHECKEPO",custom_check_epo_func},
+	{"AP+ESIMSN",custom_get_simn_func},
+	{"AP+EGSMTEST",custom_gsm_test_func},
+	{"AP+EGSMTESTR",custom_gsm_test_read_func},
 	{NULL, NULL}
 };
 
