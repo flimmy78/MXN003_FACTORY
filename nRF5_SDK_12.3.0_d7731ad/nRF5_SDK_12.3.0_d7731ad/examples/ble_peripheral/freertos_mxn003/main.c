@@ -85,6 +85,7 @@
 #include <stdarg.h>
 #include "nrf_delay.h"
 #include "nrf_drv_gpiote.h"
+#include "sensor_drv.h"
 
 #define IS_SRVC_CHANGED_CHARACT_PRESENT  1                                /**< Include the Service Changed characteristic. If not enabled, the server's database cannot be changed for the lifetime of the device. */
 
@@ -161,6 +162,7 @@ static ble_dfu_t m_dfus;
 static uint8_t voice_count = 0;
 static uint8_t voice_class = 0;
 static uint8_t uart_timeout = 0;
+static int8_t sensor_status;
 #define SDAH nrf_gpio_pin_write(VOICE_CHIP_PIN, 1)
 #define SDAL nrf_gpio_pin_write(VOICE_CHIP_PIN, 0)
 
@@ -1369,6 +1371,22 @@ custom_rsp_type_enum custom_r_func(custom_cmdLine *commandBuffer_p){
 	return  CUSTOM_RSP_OK;
 }
 
+custom_rsp_type_enum custom_senosor_func(custom_cmdLine *commandBuffer_p){
+
+	//wait_data_reponse(NULL,NULL,"+LOC","NULL");
+	uint8_t *data = NULL;
+	data = malloc(20);
+	if(sensor_status == 1){
+		data = (uint8_t *)"sensor_ok";
+	}else{
+		data = (uint8_t *)"sensor_error";
+	}
+	ble_send_data((uint8_t *)data,strlen((char *)data));
+	free(data);
+	return  CUSTOM_RSP_OK;
+}
+
+
 
 const custom_atcmd custom_cmd_table[ ] =
 {
@@ -1387,6 +1405,7 @@ const custom_atcmd custom_cmd_table[ ] =
 	{"AP+OPENLOCK",custom_open_lock_func},
 	{"AP+ALLOWLOCK",custom_permit_lock_func},
 	{"AP+CONTROLLOCK",custom_control_lock_func},
+	{"AP+GETSENSOR",custom_senosor_func},  //
 	{"AP+STOP",custom_stop_func},
 	{"AP+R",custom_r_func},
 	
@@ -1453,36 +1472,6 @@ static void nus_data_handler(ble_nus_t * p_nus, uint8_t * p_data, uint16_t lengt
 		//	NRF_LOG_INFO("data:%s length:%d\r\n",(uint32_t)p_data,length)
 			app_data_hdlr((char *)data, length);
 			memset(p_data, 0, sizeof(uint8_t)*length);
-//		NRF_LOG_INFO("data:%s    length:%d\r\n",(uint32_t)p_data,length)
-//		char *data = (char *)p_data;
-//		uint8_t cmd = 0;
-//		if(!strncmp(data,"AP+EVERN",length)){
-//			cmd = 1;
-//		}else if(!strncmp(data,"AP+VOICE",8)){
-//			cmd = 2;
-//		}else{
-//			cmd = 0;
-//		}
-//		NRF_LOG_INFO("cmd = %d\r\n",cmd);
-//		/*发送AT命令*/
-//		switch(cmd){
-//			case 1:
-//				PutUARTBytes("AT+EVERN\r\n");
-//				break;
-//			case 2:
-//					data += 8; length -=8;
-//					NRF_LOG_INFO("data = %s length = %d  %d\r\n",(uint32_t)data,length, atoi(data));
-//				break;
-//			default:
-//				break;
-//		}
-	//	memset(p_data,0,20);
-//    for (uint32_t i = 0; i < length; i++)
-//    {
-//        while (app_uart_put(p_data[i]) != NRF_SUCCESS);
-//    }
-//    while (app_uart_put('\r') != NRF_SUCCESS);
-//    while (app_uart_put('\n') != NRF_SUCCESS);
 }
 /**@snippet [Handling the data received over BLE] */
 
@@ -2159,9 +2148,9 @@ static void ble_stack_thread(void * arg)
 	//init gpio te
 		err_code = nrf_drv_gpiote_init();
 		APP_ERROR_CHECK(err_code);
-	lock_status.locklock = 1;
+		lock_status.locklock = 1;
 		custom_open_lock_func((custom_cmdLine *)"openlock");
-	
+		sensor_status = sensor_type_auto_maching_init();
 //	//定义GPIOTE输出初始化结构体，并对其成员进行赋值
 //		nrf_drv_gpiote_out_config_t out_config = GPIOTE_CONFIG_OUT_SIMPLE(true);
 //	//初始化GPIO引脚
