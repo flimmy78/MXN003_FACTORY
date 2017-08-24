@@ -181,6 +181,16 @@ static TaskHandle_t m_logger_thread;         /**< Definition of Logger thread. *
 
 static void advertising_start(void);
 
+typedef struct 
+{
+	int  	openlock;
+	int 	locklock;
+	int  	allowlock;
+	int   controllock;
+} LOCK_STATUS;
+
+LOCK_STATUS lock_status;
+
 static void uart_onoff(int8_t on)
 {
 	if(1 == on){
@@ -413,8 +423,46 @@ static void voice_chip_output(uint8_t reg)
 //	nrf_gpio_pin_write(VOICE_CHIP_PIN, 1);
 }	
 
+static void ele_mach_contrl(uint8_t status)
+{
+	nrf_gpio_pin_write(ELE_MACH_PIN, 0);
+	if(status == 1){
+		nrf_gpio_pin_write(ELE_MACH_CONTRL_PIN1, 0);
+		nrf_gpio_pin_write(ELE_MACH_CONTRL_PIN2, 1);	
+	}else{
+		nrf_gpio_pin_write(ELE_MACH_CONTRL_PIN1, 1);
+		nrf_gpio_pin_write(ELE_MACH_CONTRL_PIN2, 0);	
+	}
+}
+
+static void ele_mach_stop(void)
+{
+	nrf_gpio_pin_write(ELE_MACH_PIN, 1);
+	nrf_gpio_pin_write(ELE_MACH_CONTRL_PIN1, 0);
+	nrf_gpio_pin_write(ELE_MACH_CONTRL_PIN2, 0);
+}
+
 void in_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
 {
+	
+				NRF_LOG_INFO("in_pin_handler_test pin = %d  %d %d\r\n",nrf_gpio_pin_read(3),nrf_gpio_pin_read(4),nrf_gpio_pin_read(22));
+				NRF_LOG_FLUSH();
+				
+				if((nrf_gpio_pin_read(3) == 1) && (nrf_gpio_pin_read(4) == 1)  && (nrf_gpio_pin_read(22) == 1))
+				{
+					ele_mach_contrl(1);
+					nrf_delay_ms(400);
+					ele_mach_stop();
+					lock_status.locklock = 1;
+					lock_status.openlock = 0;
+				}
+}
+
+void voice_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
+{
+	NRF_LOG_INFO("voice_pin_handler\r\n");
+	NRF_LOG_FLUSH();
+	
 	static uint8_t i = 1;
 	if(i < voice_count){
 		i++;
@@ -431,21 +479,29 @@ void in_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
 
 void in_pin_handler_test(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
 {
+	
+				NRF_LOG_INFO("in_pin_handler_test pin = %d\r\n",pin);
+				NRF_LOG_FLUSH();
+	
 	switch(pin){
 		case 3:
 			if( nrf_gpio_pin_read(MAC_CHECK_PIN1) == 1){
 				NRF_LOG_INFO("MAC_CHECK_PIN1 HIGH\r\n");
+				NRF_LOG_FLUSH();
 			}
 			else{
 				NRF_LOG_INFO("MAC_CHECK_PIN1 LOW\r\n");
+				NRF_LOG_FLUSH();
 			}
 			break;
 		case 4:
 		if( nrf_gpio_pin_read(MAC_CHECK_PIN2) == 1){
 				NRF_LOG_INFO("MAC_CHECK_PIN2 HIGH\r\n");
+			NRF_LOG_FLUSH();
 			}
 			else{
 				NRF_LOG_INFO("MAC_CHECK_PIN2 LOW\r\n");
+				NRF_LOG_FLUSH();
 			}
 			break;
 		default:
@@ -1219,6 +1275,101 @@ custom_rsp_type_enum custom_gsm_test_read_func(custom_cmdLine *commandBuffer_p){
 	return  CUSTOM_RSP_OK;
 }
 
+
+
+custom_rsp_type_enum custom_open_lock_func(custom_cmdLine *commandBuffer_p){
+
+
+	if(lock_status.locklock != 1)
+		return 1;
+	
+	ele_mach_contrl(1);
+	
+	nrf_delay_ms(3000);
+	
+	//////////////////
+	ele_mach_contrl(0);
+	while(1)
+	{
+		if(nrf_gpio_pin_read(22) == 0)
+		{
+			nrf_delay_ms(100);
+			while(1)
+			{
+				if(nrf_gpio_pin_read(22) == 1){
+					ele_mach_stop();
+					lock_status.openlock = 1;
+					lock_status.locklock = 0;
+					lock_status.allowlock = 0;
+					lock_status.controllock = 1;			
+					return 1;
+				}
+			}	
+		}
+	}
+
+	
+	return  CUSTOM_RSP_OK;
+}
+
+custom_rsp_type_enum custom_permit_lock_func(custom_cmdLine *commandBuffer_p){
+
+	//wait_data_reponse(NULL,NULL,"+LOC","NULL");	
+	if((lock_status.controllock != 1) || (lock_status.openlock != 1))
+		return 1;
+	ele_mach_contrl(1);
+	nrf_delay_ms(1000);
+	
+	ele_mach_stop();	
+	lock_status.allowlock = 1;
+	lock_status.controllock = 0;	
+	return  CUSTOM_RSP_OK;
+}
+
+custom_rsp_type_enum custom_control_lock_func(custom_cmdLine *commandBuffer_p){
+
+	//wait_data_reponse(NULL,NULL,"+LOC","NULL");	
+	if((lock_status.allowlock != 1) || (lock_status.openlock != 1))
+		return 1;
+	ele_mach_contrl(0);
+	while(1)
+	{
+		if(nrf_gpio_pin_read(22) == 0)
+		{
+			nrf_delay_ms(100);
+			while(1)
+			{
+				if(nrf_gpio_pin_read(22) == 1){
+					ele_mach_stop();
+					lock_status.allowlock = 0;
+					lock_status.controllock = 1;	
+					return 1;
+				}
+			}	
+		}
+	}
+	return  CUSTOM_RSP_OK;
+}
+
+
+custom_rsp_type_enum custom_stop_func(custom_cmdLine *commandBuffer_p){
+
+	//wait_data_reponse(NULL,NULL,"+LOC","NULL");
+	ele_mach_stop();	
+	return  CUSTOM_RSP_OK;
+}
+
+custom_rsp_type_enum custom_r_func(custom_cmdLine *commandBuffer_p){
+
+	//wait_data_reponse(NULL,NULL,"+LOC","NULL");
+		uint32_t ret1 = nrf_gpio_pin_read(3);
+		uint32_t ret2 = nrf_gpio_pin_read(4);
+		uint32_t ret3 = nrf_gpio_pin_read(22);
+		NRF_LOG_INFO("gpio3: %d  gpio4:%d  gpio22:%d  \r\n",ret1,ret2,ret3);	
+	return  CUSTOM_RSP_OK;
+}
+
+
 const custom_atcmd custom_cmd_table[ ] =
 {
 	{"AP+VOICE",custom_voice_func},
@@ -1233,6 +1384,12 @@ const custom_atcmd custom_cmd_table[ ] =
 	{"AP+ESIMSN",custom_get_simn_func},
 	{"AP+EGSMTEST",custom_gsm_test_func},
 	{"AP+EGSMTESTR",custom_gsm_test_read_func},
+	{"AP+OPENLOCK",custom_open_lock_func},
+	{"AP+ALLOWLOCK",custom_permit_lock_func},
+	{"AP+CONTROLLOCK",custom_control_lock_func},
+	{"AP+STOP",custom_stop_func},
+	{"AP+R",custom_r_func},
+	
 	{NULL, NULL}
 };
 
@@ -1961,6 +2118,22 @@ static void gpio_init(void)
 	nrf_gpio_cfg_output(MODME_CONTRL_PIN);
 	nrf_gpio_pin_write(MODME_CONTRL_PIN, 1);
 	
+	
+	//电机驱动
+	nrf_gpio_cfg_output(ELE_MACH_PIN);
+	nrf_gpio_cfg_output(ELE_MACH_CONTRL_PIN1);
+	nrf_gpio_cfg_output(ELE_MACH_CONTRL_PIN2);
+	
+	nrf_gpio_pin_write(ELE_MACH_PIN, 1);
+	nrf_gpio_pin_write(ELE_MACH_CONTRL_PIN1, 0);
+	nrf_gpio_pin_write(ELE_MACH_CONTRL_PIN2, 0);
+	
+	//电机检测  //3  //4  //22
+	nrf_gpio_cfg_input(3,NRF_GPIO_PIN_PULLDOWN);
+	nrf_gpio_cfg_input(4,NRF_GPIO_PIN_PULLDOWN);
+	nrf_gpio_cfg_input(22,NRF_GPIO_PIN_PULLDOWN);
+	
+	
 }
 
 
@@ -1986,6 +2159,9 @@ static void ble_stack_thread(void * arg)
 	//init gpio te
 		err_code = nrf_drv_gpiote_init();
 		APP_ERROR_CHECK(err_code);
+	lock_status.locklock = 1;
+		custom_open_lock_func((custom_cmdLine *)"openlock");
+	
 //	//定义GPIOTE输出初始化结构体，并对其成员进行赋值
 //		nrf_drv_gpiote_out_config_t out_config = GPIOTE_CONFIG_OUT_SIMPLE(true);
 //	//初始化GPIO引脚
@@ -1994,24 +2170,34 @@ static void ble_stack_thread(void * arg)
 		//高电平到低电平产生变化
 //		nrf_drv_gpiote_in_config_t in_config = GPIOTE_CONFIG_IN_SENSE_HITOLO(true);
 		//低电平到高电平
-			nrf_drv_gpiote_in_config_t in_config = GPIOTE_CONFIG_IN_SENSE_LOTOHI(true);
+			//nrf_drv_gpiote_in_config_t in_config = GPIOTE_CONFIG_IN_SENSE_LOTOHI(true);
 		//任意电平变化
-			nrf_drv_gpiote_in_config_t in_config1 = GPIOTE_CONFIG_IN_SENSE_TOGGLE(true);
+			nrf_drv_gpiote_in_config_t in_config = GPIOTE_CONFIG_IN_SENSE_LOTOHI(true);
+		//引脚上拉
+		in_config.pull = NRF_GPIO_PIN_PULLDOWN;
+		err_code = nrf_drv_gpiote_in_init(MAC_CHECK_PIN2, &in_config, in_pin_handler);
+		APP_ERROR_CHECK(err_code);
+		
+		
+		nrf_drv_gpiote_in_config_t in_config1 = GPIOTE_CONFIG_IN_SENSE_LOTOHI(true);
 		//引脚上拉
 		in_config.pull = NRF_GPIO_PIN_PULLUP;
-		err_code = nrf_drv_gpiote_in_init(VOICE_CHECK_PIN, &in_config, in_pin_handler);
+		err_code = nrf_drv_gpiote_in_init(VOICE_CHECK_PIN, &in_config1, voice_pin_handler);
 		APP_ERROR_CHECK(err_code);
 		
-		in_config1.pull = NRF_GPIO_PIN_PULLUP;
-		err_code = nrf_drv_gpiote_in_init(MAC_CHECK_PIN1, &in_config1, in_pin_handler_test);
-		APP_ERROR_CHECK(err_code);
-		err_code = nrf_drv_gpiote_in_init(MAC_CHECK_PIN2, &in_config1, in_pin_handler_test);
-		APP_ERROR_CHECK(err_code);
+		
+//		in_config1.pull = NRF_GPIO_PIN_PULLUP;
+//		err_code = nrf_drv_gpiote_in_init(MAC_CHECK_PIN1, &in_config1, in_pin_handler_test);
+//		APP_ERROR_CHECK(err_code);
+//		err_code = nrf_drv_gpiote_in_init(MAC_CHECK_PIN2, &in_config1, in_pin_handler_test);
+//		APP_ERROR_CHECK(err_code);
 		
 		//使能GPIOTE 通道事件
-		nrf_drv_gpiote_in_event_enable(MAC_CHECK_PIN1,true);
+//		nrf_drv_gpiote_in_event_enable(MAC_CHECK_PIN1,true);
+//		nrf_drv_gpiote_in_event_enable(MAC_CHECK_PIN2,true);
 		nrf_drv_gpiote_in_event_enable(MAC_CHECK_PIN2,true);
 		nrf_drv_gpiote_in_event_enable(VOICE_CHECK_PIN,true);
+		//
 //    buttons_leds_init(&erase_bonds);
     ble_stack_init();
     peer_manager_init(erase_bonds);
