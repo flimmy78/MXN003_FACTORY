@@ -60,6 +60,7 @@
 #include "nrf_drv_adc.h"
 #include "app_pwm.h"
 #include "nrf_delay.h"
+#include "app_uart.h"
 
 #define CENTRAL_LINK_COUNT              0                                 /**< Number of central links used by the application. When changing this number remember to adjust the RAM settings*/
 #define PERIPHERAL_LINK_COUNT           0                                 /**< Number of peripheral links used by the application. When changing this number remember to adjust the RAM settings*/
@@ -103,6 +104,18 @@ APP_TIMER_DEF(led_off_timer_id);
 #define LED_ON_TIMER_INTERVAL           APP_TIMER_TICKS(2000, APP_TIMER_PRESCALER)
 #define LED_OFF_TIMER_INTERVAL          APP_TIMER_TICKS(50000, APP_TIMER_PRESCALER)
 
+static uint8_t index = 0;
+#define UART_BUFFER_SIZE (128)
+static uint8_t data_array[UART_BUFFER_SIZE];
+
+static uint8_t timer_start = 0;
+static void uart_timeout_handler(void * p_context);
+#define UART_TX_BUF_SIZE                256                                         /**< UART TX buffer size. */
+#define UART_RX_BUF_SIZE                1                                         /**< UART RX buffer size. */
+
+APP_TIMER_DEF(uart_timer_id);
+#define UART_IMTES_INTERVAL       APP_TIMER_TICKS(100, APP_TIMER_PRESCALER)
+
 static nrf_adc_value_t                  adc_buffer[ADC_BUFFER_SIZE];                /**< ADC buffer. */
 static uint8_t                          number_of_adc_channels;
 
@@ -112,6 +125,15 @@ static uint8_t                          number_of_adc_channels;
 
 APP_PWM_INSTANCE(PWM1,1);                   // Create the instance "PWM1" using TIMER1.
 #define LED_PIN   8
+
+typedef struct
+{
+	uint16_t adc1;
+	uint16_t adc2;
+	uint16_t adc3;
+} ADC_DATA;
+
+ADC_DATA adc_data;
 
 #define ADC_RESULT_IN_MILLI_VOLTS(ADC_VALUE)\
 			((((ADC_VALUE) * ADC_REF_VBG_VOLTAGE_IN_MILLIVOLTS) / ADC_RES_10BIT) * ADC_INPUT_PRESCALER)
@@ -220,6 +242,251 @@ static void advertising_start(void)
     APP_ERROR_CHECK(err_code);
 }
 
+static const char m_target_periph_name[] = "";
+
+typedef struct
+{
+	uint8_t *p_data;
+	uint16_t data_len;
+}data_t;
+
+static uint32_t adv_report_parse(uint8_t type, data_t *p_advdata, data_t *p_typedata)
+{
+	uint32_t index = 0;
+	uint8_t *p_data;
+	
+	p_data = p_advdata->p_data;
+	
+	while(index < p_advdata->data_len)
+	{
+		uint8_t field_length = p_data[index];
+		uint8_t field_type = p_data[index+1];
+		
+		if(field_type == type)
+		{
+			p_typedata->p_data = &p_data[index + 2];
+			p_typedata->data_len = field_length - 1;
+			return NRF_SUCCESS;
+		}
+		index += field_length + 1;
+	}
+	
+	return NRF_ERROR_NOT_FOUND;
+}
+
+#define BLE_UUID_NUS_SERVICE  0x0001 
+#define NUS_SERVICE_UUID_TYPE 0x02
+#define NUS_BASE_UUID                  {{0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0, 0x93, 0xF3, 0xA3, 0xB5, 0x00, 0x00, 0x40, 0x6E}} /**< Used vendor specific UUID. */
+//static ble_uuid_t find_uuids[] = {{BLE_UUID_NUS_SERVICE, BLE_UUID_TYPE_BLE}};
+static const ble_uuid_t find_uuids = {
+	.uuid = BLE_UUID_NUS_SERVICE,
+	.type = NUS_SERVICE_UUID_TYPE
+};
+
+#define UUID16_SIZE             2                               /**< Size of 16 bit UUID */
+#define UUID32_SIZE             4                               /**< Size of 32 bit UUID */
+#define UUID128_SIZE            16                              /**< Size of 128 bit UUID */
+
+static bool is_uuid_present(const ble_uuid_t *p_target_uuid,
+                            const ble_gap_evt_adv_report_t *p_adv_report)
+{
+    uint32_t err_code;
+    uint32_t index = 0;
+    uint8_t *p_data = (uint8_t *)p_adv_report->data;
+    ble_uuid_t extracted_uuid;
+
+    while (index < p_adv_report->dlen)
+    {
+        uint8_t field_length = p_data[index];
+        uint8_t field_type   = p_data[index + 1];
+        if ( (field_type == BLE_GAP_AD_TYPE_16BIT_SERVICE_UUID_MORE_AVAILABLE)
+           || (field_type == BLE_GAP_AD_TYPE_16BIT_SERVICE_UUID_COMPLETE)
+           )
+        {
+            for (uint32_t u_index = 0; u_index < (field_length / UUID16_SIZE); u_index++)
+            {
+                err_code = sd_ble_uuid_decode(  UUID16_SIZE,
+                                                &p_data[u_index * UUID16_SIZE + index + 2],
+                                                &extracted_uuid);
+                if (err_code == NRF_SUCCESS)
+                {
+                    if ((extracted_uuid.uuid == p_target_uuid->uuid)
+                        && (extracted_uuid.type == p_target_uuid->type))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        else if ( (field_type == BLE_GAP_AD_TYPE_32BIT_SERVICE_UUID_MORE_AVAILABLE)
+                || (field_type == BLE_GAP_AD_TYPE_32BIT_SERVICE_UUID_COMPLETE)
+                )
+        {
+            for (uint32_t u_index = 0; u_index < (field_length / UUID32_SIZE); u_index++)
+            {
+                err_code = sd_ble_uuid_decode(UUID16_SIZE,
+                &p_data[u_index * UUID32_SIZE + index + 2],
+                &extracted_uuid);
+                if (err_code == NRF_SUCCESS)
+                {
+                    if ((extracted_uuid.uuid == p_target_uuid->uuid)
+                        && (extracted_uuid.type == p_target_uuid->type))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        else if ( (field_type == BLE_GAP_AD_TYPE_128BIT_SERVICE_UUID_MORE_AVAILABLE)
+                || (field_type == BLE_GAP_AD_TYPE_128BIT_SERVICE_UUID_COMPLETE)
+                )
+        {
+            err_code = sd_ble_uuid_decode(UUID128_SIZE,
+                                          &p_data[index + 2],
+                                          &extracted_uuid);
+            if (err_code == NRF_SUCCESS)
+            {
+								printf("%x\r\n",extracted_uuid.uuid);
+                if ((extracted_uuid.uuid == p_target_uuid->uuid)
+                    && (extracted_uuid.type == p_target_uuid->type))
+                {
+                    return true;
+                }
+            }
+        }
+        index += field_length + 1;
+    }
+    return false;
+}
+
+static bool find_adv_name(const ble_gap_evt_adv_report_t *p_adv_report, const char *name_to_find)
+{
+	uint32_t err_code;
+	data_t adv_data;
+	data_t dev_name;
+	
+	adv_data.p_data = (uint8_t *)p_adv_report->data;
+	adv_data.data_len = p_adv_report->dlen;
+	
+	err_code = adv_report_parse(BLE_GAP_AD_TYPE_COMPLETE_LOCAL_NAME,
+															&adv_data,
+															&dev_name);
+	
+	if(err_code == NRF_SUCCESS)
+	{
+		if(memcmp(name_to_find, dev_name.p_data, dev_name.data_len) == 0)
+		{
+			return true;
+		}
+	}
+	else
+	{
+		err_code = adv_report_parse(BLE_GAP_AD_TYPE_COMPLETE_LOCAL_NAME,
+															&adv_data,
+															&dev_name);
+		
+		if(err_code != NRF_SUCCESS)
+		{
+			return false;
+		}
+		if(memcmp(m_target_periph_name, dev_name.p_data, dev_name.data_len) == 0)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+#define UUID16_EXTRACT(DST,SRC) \
+		do													\
+		{														\
+			(*(DST)) = (SRC)[1];			\
+			(*(DST)) << 8;						\
+			(*(DST)) |= (SRC)[0];			\
+		}while(0)
+		
+#define TARGET_UUID 0x1800
+		
+static bool find_adv_uuid(const ble_gap_evt_adv_report_t *p_adv_report, const uint16_t uuid_to_find)
+{
+	uint32_t err_code;
+	data_t adv_data;
+	data_t type_data;
+	
+	adv_data.p_data = (uint8_t *)p_adv_report->data;
+	adv_data.data_len = p_adv_report->dlen;
+	
+	err_code = adv_report_parse(BLE_GAP_AD_TYPE_16BIT_SERVICE_UUID_MORE_AVAILABLE,
+															&adv_data,
+															&type_data);
+	
+	if(err_code != NRF_SUCCESS)
+	{
+		err_code =	adv_report_parse(BLE_GAP_AD_TYPE_16BIT_SERVICE_UUID_COMPLETE,
+															&adv_data,
+															&type_data); 
+		
+		if(err_code != NRF_SUCCESS)
+		{
+			printf("return error\r\n");
+			return false;
+		}
+	}
+	
+	for(uint32_t u_index = 0; u_index < (type_data.data_len / sizeof(uint16_t)); u_index++)
+	{
+		uint16_t extracted_uuid;
+		
+		UUID16_EXTRACT(&extracted_uuid, &type_data.p_data[u_index * sizeof(uint16_t)]);
+		printf("0x%x\r\n",extracted_uuid);
+		if(extracted_uuid == uuid_to_find)
+		{
+			return true;
+		}
+	}
+	
+	return false;
+	
+}
+
+
+static void on_ble_evt(ble_evt_t * p_ble_evt)
+{
+		//uint32_t err_code = NRF_SUCCESS;
+		const ble_gap_evt_t * p_gap_evt = &p_ble_evt->evt.gap_evt;
+	
+		switch (p_ble_evt->header.evt_id)
+		{
+			case BLE_GAP_EVT_ADV_REPORT:
+			{
+				const ble_gap_evt_adv_report_t * p_adv_report = &p_gap_evt->params.adv_report;
+				if(strlen(m_target_periph_name) != 0)
+				{
+					if(find_adv_name(&p_gap_evt->params.adv_report, m_target_periph_name))
+					{
+						printf("find the match send connect_request!!\r\n");
+						(void)sd_ble_gap_scan_stop();
+					}
+				}
+				else
+				{
+					if (is_uuid_present(&find_uuids, p_adv_report))
+					{
+							printf("uuid mach!!\r\n");
+					}
+
+				}
+			}break;
+		}
+}
+
+static void ble_evt_dispatch(ble_evt_t * p_ble_evt)
+{
+
+    on_ble_evt(p_ble_evt);
+}
 
 /**@brief Function for initializing the BLE stack.
  *
@@ -245,6 +512,10 @@ static void ble_stack_init(void)
 
     // Enable BLE stack.
     err_code = softdevice_enable(&ble_enable_params);
+    APP_ERROR_CHECK(err_code);
+	
+	    // Register with the SoftDevice handler module for BLE events.
+    err_code = softdevice_ble_evt_handler_set(ble_evt_dispatch);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -274,7 +545,8 @@ static void adc_event_handler(nrf_drv_adc_evt_t const * p_event)
 						if(0 == (i % number_of_adc_channels)){
 							batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);
 							batt_lvl_in_milli_volts = batt_lvl_in_milli_volts * 122 / 22 + 30;
-							NRF_LOG_INFO("main batter %d\r\n",batt_lvl_in_milli_volts);
+							//NRF_LOG_INFO("main batter %d\r\n",batt_lvl_in_milli_volts);
+							adc_data.adc1 = batt_lvl_in_milli_volts;
 							if(batt_lvl_in_milli_volts < 2300){
 								nrf_gpio_pin_write(20,0);
 							}
@@ -284,7 +556,8 @@ static void adc_event_handler(nrf_drv_adc_evt_t const * p_event)
 						}else{
 							batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);
 							batt_lvl_in_milli_volts = batt_lvl_in_milli_volts * 122 / 22 + 40;
-							NRF_LOG_INFO("sub batter %d\r\n",batt_lvl_in_milli_volts);
+						//	NRF_LOG_INFO("sub batter %d\r\n",batt_lvl_in_milli_volts);
+							adc_data.adc2 = batt_lvl_in_milli_volts;
 						}
 					//	NRF_LOG_INFO("ADC value channel %d: %d\r\n", (i % number_of_adc_channels), p_event->data.done.p_buffer[i]);
 				}
@@ -379,6 +652,10 @@ static void timers_init(void)
                                 led_off_timerout_handler);
     APP_ERROR_CHECK(err_code);
 	
+		err_code = app_timer_create(&uart_timer_id,
+														APP_TIMER_MODE_REPEATED,
+														uart_timeout_handler);
+		APP_ERROR_CHECK(err_code);
 }
 
 static void application_timers_start(void)
@@ -403,6 +680,191 @@ void pwm_ready_callback(uint32_t pwm_id)    // PWM callback function
 {
     ready_flag = true;
 }
+typedef struct 
+{
+	short  position;
+	short  length;
+	char   character[128];
+} custom_cmdLine;
+
+typedef enum
+{
+	CUSTOM_RSP_ERROR = -1,
+	CUSTOM_RSP_OK = 0,
+	CUSTOM_RSP_LATER
+} custom_rsp_type_enum;
+
+typedef struct
+{
+	char *commandString;
+	custom_rsp_type_enum (*commandFunc)(custom_cmdLine *commandBuffer_p);
+} custom_atcmd;
+
+static custom_rsp_type_enum custom_test_func(custom_cmdLine *commandBuffer_p)
+{
+	printf("enter custom_test_func adc1 = %d; adc2= %d\r\n",adc_data.adc1, adc_data.adc2);
+	return  CUSTOM_RSP_OK;
+}
+
+const custom_atcmd custom_cmd_table[ ] =
+{    
+	{"AT%CUSTOM",custom_test_func},
+	//{"AT+MSENSOR",custom_sensor_func},
+  {NULL, NULL}  // this lind should not be removed, it will be treat as 
+};
+
+static bool uart_custom_common_hdlr(char *full_cmd_string)
+{
+	printf("data:%s\r\n",	full_cmd_string);
+	char buffer[128];
+	char *cmd_name, *cmdString;
+	uint8_t index = 0; 
+	uint16_t length;
+	uint16_t i;
+	custom_cmdLine command_line;
+	cmd_name = buffer;
+	length = strlen(full_cmd_string);
+	length = length > 128 ? 128 : length;  
+
+	while ((full_cmd_string[index] != '=' ) &&  //might be TEST command or EXE command
+				(full_cmd_string[index] != '?' ) && // might be READ command
+			(full_cmd_string[index] != 13 ) && //carriage return
+	index < length)  
+	{
+		cmd_name[index] = full_cmd_string[index] ;
+		index ++;
+	}
+	cmd_name[index] = '\0' ;   
+	
+    for (i = 0 ; custom_cmd_table[i].commandString != NULL; i++ )
+    {
+        cmdString = custom_cmd_table[i].commandString;
+        if (strcmp(cmd_name, cmdString) == 0 )
+        {
+            strncpy(command_line.character, full_cmd_string, 128);
+            command_line.character[127] = '\0';
+            command_line.length = strlen(command_line.character);
+            command_line.position = index;
+            if (custom_cmd_table[i].commandFunc(&command_line) == CUSTOM_RSP_OK) {
+								//PutUARTBytes("OK");
+						}else{
+								//PutUARTBytes("\r\nERROR\r\n");
+            }
+            return true;
+        }
+    }   
+			
+		return true;
+}
+
+static void uart_timeout_handler(void * p_context)
+{
+    UNUSED_PARAMETER(p_context);
+		app_timer_stop(uart_timer_id);
+		uart_custom_common_hdlr((char *)data_array);
+		memset(data_array, 0, UART_BUFFER_SIZE);
+		timer_start = 0;
+		index = 0;
+}
+
+static void uart_event_handle(app_uart_evt_t * p_event)
+{
+	switch (p_event->evt_type)
+	{
+				case APP_UART_DATA_READY:
+						UNUSED_VARIABLE(app_uart_get(&data_array[index]));
+						index++;
+				
+						if(timer_start == 0){
+							app_timer_start(uart_timer_id, UART_IMTES_INTERVAL, NULL);
+							timer_start = 1;
+						}		
+						
+						if((index >= (UART_BUFFER_SIZE)))
+						{
+							memset(data_array, 0, UART_BUFFER_SIZE);
+							index = 0;
+						} 
+						
+						if((data_array[index - 1] == '\n') && (timer_start == 1)){
+							app_timer_stop(uart_timer_id);
+							uart_custom_common_hdlr((char *)data_array);
+							
+							memset(data_array, 0, UART_BUFFER_SIZE);
+							index = 0;
+							timer_start = 0;
+						}
+				
+						break;
+	      case APP_UART_COMMUNICATION_ERROR:
+            APP_ERROR_HANDLER(p_event->data.error_communication);
+            break;
+
+        case APP_UART_FIFO_ERROR:
+            APP_ERROR_HANDLER(p_event->data.error_code);
+            break;
+
+        default:
+            break;
+	
+	}
+}
+
+void uart_init(void)
+{
+    uint32_t                     err_code;
+    const app_uart_comm_params_t comm_params =
+    {
+        RX_PIN_NUMBER,
+        TX_PIN_NUMBER,
+        RTS_PIN_NUMBER,
+        CTS_PIN_NUMBER,
+        APP_UART_FLOW_CONTROL_DISABLED,
+        false,
+        UART_BAUDRATE_BAUDRATE_Baud115200
+    };
+
+    APP_UART_FIFO_INIT( &comm_params,
+                       UART_RX_BUF_SIZE,
+                       UART_TX_BUF_SIZE,
+                       uart_event_handle,
+                       APP_IRQ_PRIORITY_LOWEST,
+                       err_code);
+    APP_ERROR_CHECK(err_code);
+}
+
+#define SCAN_INTERVAL           0x00A0                          /**< Determines scan interval in units of 0.625 millisecond. */
+#define SCAN_WINDOW             0x0050                          /**< Determines scan window in units of 0.625 millisecond. */
+#define SCAN_ACTIVE             1                               /**< If 1, performe active scanning (scan requests). */
+#define SCAN_SELECTIVE          0                               /**< If 1, ignore unknown devices (non whitelisted). */
+#define SCAN_TIMEOUT            0x0000                          /**< Timout when scanning. 0x0000 disables timeout. */
+
+
+static const ble_gap_scan_params_t m_scan_params =
+{
+    .active   = 1,
+    .interval = SCAN_INTERVAL,
+    .window   = SCAN_WINDOW,
+    .timeout  = SCAN_TIMEOUT,
+    #if (NRF_SD_BLE_API_VERSION == 2)
+        .selective   = 0,
+        .p_whitelist = NULL,
+    #endif
+    #if (NRF_SD_BLE_API_VERSION == 3)
+        .use_whitelist = 0,
+    #endif
+};
+
+static void scan_start(void)
+{
+    ret_code_t ret;
+
+    ret = sd_ble_gap_scan_start(&m_scan_params);
+    APP_ERROR_CHECK(ret);
+
+    ret = bsp_indication_set(BSP_INDICATE_SCANNING);
+    APP_ERROR_CHECK(ret);
+}
 
 
 /**
@@ -418,6 +880,7 @@ int main(void)
     //APP_TIMER_INIT(APP_TIMER_PRESCALER, APP_TIMER_OP_QUEUE_SIZE, false);
     //err_code = bsp_init(BSP_INIT_LED, APP_TIMER_TICKS(100, APP_TIMER_PRESCALER), NULL);
     //APP_ERROR_CHECK(err_code);
+		uart_init();
 		nrf_gpio_cfg_output(20);
 		nrf_gpio_pin_write(20,1);	
 	
@@ -448,6 +911,8 @@ int main(void)
     NRF_LOG_INFO("BLE Beacon started\r\n");
 		application_timers_start();
     advertising_start();
+		
+		scan_start();
 
     // Enter main loop.
     for (;; )
