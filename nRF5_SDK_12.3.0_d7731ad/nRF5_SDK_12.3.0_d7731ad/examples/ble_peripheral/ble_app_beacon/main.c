@@ -61,6 +61,8 @@
 #include "app_pwm.h"
 #include "nrf_delay.h"
 #include "app_uart.h"
+#include "app_scheduler.h"
+#include "app_timer_appsh.h"
 
 #define CENTRAL_LINK_COUNT              0                                 /**< Number of central links used by the application. When changing this number remember to adjust the RAM settings*/
 #define PERIPHERAL_LINK_COUNT           0                                 /**< Number of peripheral links used by the application. When changing this number remember to adjust the RAM settings*/
@@ -68,7 +70,7 @@
 #define IS_SRVC_CHANGED_CHARACT_PRESENT 0                                 /**< Include or not the service_changed characteristic. if not enabled, the server's database cannot be changed for the lifetime of the device*/
 
 #define APP_CFG_NON_CONN_ADV_TIMEOUT    0                                 /**< Time for which the device must be advertising in non-connectable mode (in seconds). 0 disables timeout. */
-#define NON_CONNECTABLE_ADV_INTERVAL    MSEC_TO_UNITS(640, UNIT_0_625_MS) /**< The advertising interval for non-connectable advertisement (100 ms). This value can vary between 100ms to 10.24s). */
+#define NON_CONNECTABLE_ADV_INTERVAL    640 //MSEC_TO_UNITS(640, UNIT_0_625_MS) /**< The advertising interval for non-connectable advertisement (100 ms). This value can vary between 100ms to 10.24s). */
 
 #define APP_BEACON_INFO_LENGTH          0x17                              /**< Total length of information advertised by the Beacon. */
 #define APP_ADV_DATA_LENGTH             0x15                              /**< Length of manufacturer specific data in the advertisement. */
@@ -96,7 +98,7 @@ APP_TIMER_DEF(battery_timer_id);
 APP_TIMER_DEF(led_on_timer_id); 
 APP_TIMER_DEF(led_off_timer_id); 
 
-#define ADC_BUFFER_SIZE                 2               //Size of buffer for ADC samples. Buffer size should be multiple of number of adc channels located.
+#define ADC_BUFFER_SIZE                 3               //Size of buffer for ADC samples. Buffer size should be multiple of number of adc channels located.
 
 #define APP_TIMER_PRESCALER             0                                           /**< Value of the RTC1 PRESCALER register. */
 #define APP_TIMER_OP_QUEUE_SIZE         4                                           /**< Size of timer operation queues. */
@@ -114,7 +116,7 @@ static void uart_timeout_handler(void * p_context);
 #define UART_RX_BUF_SIZE                1                                         /**< UART RX buffer size. */
 
 APP_TIMER_DEF(uart_timer_id);
-#define UART_IMTES_INTERVAL       APP_TIMER_TICKS(100, APP_TIMER_PRESCALER)
+#define UART_IMTES_INTERVAL       			APP_TIMER_TICKS(100, APP_TIMER_PRESCALER)
 
 static nrf_adc_value_t                  adc_buffer[ADC_BUFFER_SIZE];                /**< ADC buffer. */
 static uint8_t                          number_of_adc_channels;
@@ -125,6 +127,7 @@ static uint8_t                          number_of_adc_channels;
 
 APP_PWM_INSTANCE(PWM1,1);                   // Create the instance "PWM1" using TIMER1.
 #define LED_PIN   8
+int8_t ble_rssi = 0;
 
 typedef struct
 {
@@ -278,10 +281,8 @@ static uint32_t adv_report_parse(uint8_t type, data_t *p_advdata, data_t *p_type
 #define NUS_SERVICE_UUID_TYPE 0x02
 #define NUS_BASE_UUID                  {{0x9E, 0xCA, 0xDC, 0x24, 0x0E, 0xE5, 0xA9, 0xE0, 0x93, 0xF3, 0xA3, 0xB5, 0x00, 0x00, 0x40, 0x6E}} /**< Used vendor specific UUID. */
 //static ble_uuid_t find_uuids[] = {{BLE_UUID_NUS_SERVICE, BLE_UUID_TYPE_BLE}};
-static const ble_uuid_t find_uuids = {
-	.uuid = BLE_UUID_NUS_SERVICE,
-	.type = NUS_SERVICE_UUID_TYPE
-};
+#define BLE_UUID_DEVICE_TEST_SERVICE 0xFFA1
+static ble_uuid_t find_uuids[] = {{BLE_UUID_DEVICE_TEST_SERVICE, BLE_UUID_TYPE_BLE}};
 
 #define UUID16_SIZE             2                               /**< Size of 16 bit UUID */
 #define UUID32_SIZE             4                               /**< Size of 32 bit UUID */
@@ -409,6 +410,7 @@ static bool find_adv_name(const ble_gap_evt_adv_report_t *p_adv_report, const ch
 		
 #define TARGET_UUID 0x1800
 		
+		#if 0
 static bool find_adv_uuid(const ble_gap_evt_adv_report_t *p_adv_report, const uint16_t uuid_to_find)
 {
 	uint32_t err_code;
@@ -450,7 +452,7 @@ static bool find_adv_uuid(const ble_gap_evt_adv_report_t *p_adv_report, const ui
 	return false;
 	
 }
-
+#endif
 
 static void on_ble_evt(ble_evt_t * p_ble_evt)
 {
@@ -472,9 +474,10 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
 				}
 				else
 				{
-					if (is_uuid_present(&find_uuids, p_adv_report))
+					if (is_uuid_present(find_uuids, p_adv_report))
 					{
-							printf("uuid mach!!\r\n");
+							ble_rssi = p_adv_report->rssi;
+							//printf("uuid mach!!\r\n");
 					}
 
 				}
@@ -544,24 +547,30 @@ static void adc_event_handler(nrf_drv_adc_evt_t const * p_event)
 						adc_result = p_event->data.done.p_buffer[i];
 						if(0 == (i % number_of_adc_channels)){
 							batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);
-							batt_lvl_in_milli_volts = batt_lvl_in_milli_volts * 122 / 22 + 30;
+							batt_lvl_in_milli_volts = batt_lvl_in_milli_volts * 122 / 22;
 							//NRF_LOG_INFO("main batter %d\r\n",batt_lvl_in_milli_volts);
 							adc_data.adc1 = batt_lvl_in_milli_volts;
-							if(batt_lvl_in_milli_volts < 2300){
-								nrf_gpio_pin_write(20,0);
-							}
-							else if(batt_lvl_in_milli_volts > 2400){
-								nrf_gpio_pin_write(20,1);
-							}
-						}else{
+//							if(batt_lvl_in_milli_volts < 2500){
+//								app_timer_stop(led_on_timer_id);
+//								nrf_gpio_pin_write(20,0);
+//							}
+//							else if(batt_lvl_in_milli_volts > 2600){
+//								app_timer_start(led_on_timer_id, LED_ON_TIMER_INTERVAL, NULL);
+//								nrf_gpio_pin_write(20,1);
+//							}
+						}else if(1 == (i % number_of_adc_channels)){
 							batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);
-							batt_lvl_in_milli_volts = batt_lvl_in_milli_volts * 122 / 22 + 40;
-						//	NRF_LOG_INFO("sub batter %d\r\n",batt_lvl_in_milli_volts);
+							batt_lvl_in_milli_volts = batt_lvl_in_milli_volts * 122 / 22;
+							//NRF_LOG_INFO("sub batter %d\r\n",batt_lvl_in_milli_volts);
 							adc_data.adc2 = batt_lvl_in_milli_volts;
+						}else if(2 == (i % number_of_adc_channels)){
+							batt_lvl_in_milli_volts = ADC_RESULT_IN_MILLI_VOLTS(adc_result);
+							batt_lvl_in_milli_volts = batt_lvl_in_milli_volts *3;
+							//NRF_LOG_INFO("system batter %d\r\n",batt_lvl_in_milli_volts);
+							adc_data.adc3 = batt_lvl_in_milli_volts;
 						}
-					//	NRF_LOG_INFO("ADC value channel %d: %d\r\n", (i % number_of_adc_channels), p_event->data.done.p_buffer[i]);
+						
 				}
-				
         APP_ERROR_CHECK(nrf_drv_adc_buffer_convert(adc_buffer,ADC_BUFFER_SIZE));
     }
 
@@ -590,11 +599,11 @@ static void adc_config(void)
     nrf_drv_adc_channel_enable(&m_channel_1_config);
 	
     //Configure and enable ADC channel 2
-//    static nrf_drv_adc_channel_t m_channel_2_config = NRF_DRV_ADC_DEFAULT_CHANNEL(NRF_ADC_CONFIG_INPUT_DISABLED);	
-//    m_channel_2_config.config.config.input = NRF_ADC_CONFIG_SCALING_INPUT_ONE_THIRD;
-//    nrf_drv_adc_channel_enable(&m_channel_2_config);
+    static nrf_drv_adc_channel_t m_channel_2_config = NRF_DRV_ADC_DEFAULT_CHANNEL(NRF_ADC_CONFIG_INPUT_DISABLED);	
+    m_channel_2_config.config.config.input = NRF_ADC_CONFIG_SCALING_SUPPLY_ONE_THIRD;
+    nrf_drv_adc_channel_enable(&m_channel_2_config);
 	
-    number_of_adc_channels = 2;    //Set equal to the number of configured ADC channels, for the sake of UART output.
+    number_of_adc_channels = 3;    //Set equal to the number of configured ADC channels, for the sake of UART output.
 		APP_ERROR_CHECK(nrf_drv_adc_buffer_convert(adc_buffer,ADC_BUFFER_SIZE));
 
 }
@@ -666,11 +675,11 @@ static void application_timers_start(void)
     err_code = app_timer_start(battery_timer_id, BATTER_TIMER_INTERVAL, NULL);
     APP_ERROR_CHECK(err_code);
 	
-	  err_code = app_timer_start(led_on_timer_id, LED_ON_TIMER_INTERVAL, NULL);
-    APP_ERROR_CHECK(err_code);
-	
-		err_code = app_timer_start(led_off_timer_id, LED_OFF_TIMER_INTERVAL, NULL);
-    APP_ERROR_CHECK(err_code);
+//	  err_code = app_timer_start(led_on_timer_id, LED_ON_TIMER_INTERVAL, NULL);
+//    APP_ERROR_CHECK(err_code);
+//	
+//		err_code = app_timer_start(led_off_timer_id, LED_OFF_TIMER_INTERVAL, NULL);
+//    APP_ERROR_CHECK(err_code);
 }
 
 
@@ -700,22 +709,314 @@ typedef struct
 	custom_rsp_type_enum (*commandFunc)(custom_cmdLine *commandBuffer_p);
 } custom_atcmd;
 
+typedef enum
+{
+	CUSTOM_WRONG_MODE,
+	CUSTOM_SET_OR_EXECUTE_MODE,
+	CUSTOM_READ_MODE,
+	CUSTOM_TEST_MODE,
+	CUSTOM_ACTIVE_MODE
+} custom_cmd_mode_enum;
+
+typedef struct
+{
+	short  position;
+	uint8_t   	 part;
+	char     	 	 rcv_msg[128];
+	char       	 *pars[10];
+	uint16_t      rcv_length;
+} cmd_data_struct;
+
+typedef enum
+{
+    CM_Main,
+    CM_Par1,
+    CM_Par2,
+    CM_Par3,
+    CM_Par4,
+    CM_Par5,
+    CM_Par6,
+    CM_Par7,
+    CM_Par8,
+    CMD_MAX_Pars
+} Cmd_Pars;
+
+
+custom_cmd_mode_enum custom_find_cmd_mode(custom_cmdLine *cmd_line)
+{
+    custom_cmd_mode_enum result;
+   // if (cmd_line->position < cmd_line->length - 1) //modfiy by xuzhoubin for no '\r\n'
+		if (cmd_line->position < cmd_line->length)
+    {
+        switch (cmd_line->character[cmd_line->position])
+        {
+            case '?':  /* AT+...? */
+            {
+                cmd_line->position++;
+                result = CUSTOM_READ_MODE;
+                break;
+            }
+            case '=':  /* AT+...= */
+            {
+                cmd_line->position++;								
+                if ((cmd_line->position < cmd_line->length ) &&
+                    (cmd_line->character[cmd_line->position] == '?'))
+                {
+                    cmd_line->position++;
+                    result = CUSTOM_TEST_MODE;
+                }
+                else
+                {
+                    result = CUSTOM_SET_OR_EXECUTE_MODE;
+                }
+                break;
+            }
+            default:  /* AT+... */
+            {
+                result = CUSTOM_ACTIVE_MODE;
+                break;
+            }
+        }
+    }
+    else
+    {
+        result = CUSTOM_ACTIVE_MODE;
+    }
+    return (result);
+}
+
+static int fun_str_analyse(char *str_data, char **tar_data, int limit, char startChar, char *endChars, char splitChar)
+{
+    static char *blank = "";
+    int len, i = 0, j = 0, status = 0;
+    char *p;
+    if(str_data == NULL || tar_data == NULL)
+    {
+        return -1;
+    }
+    len = strlen(str_data);
+	
+		if(str_data[len - 1]  == '\n')  //add by xuzhoubin for have  \r\n,数据解析error
+				len -=2;
+	
+    for(i = 0, j = 0, p = str_data; i < len; i++, p++)
+    {
+        if(status == 0 && (*p == startChar || startChar == NULL))
+        {
+            status = 1;
+            if(j >= limit)
+            {
+                return -2;
+            }
+            if((startChar == NULL))
+            {
+                tar_data[j++] = p;
+            }
+            else if(*(p + 1) == splitChar)
+            {
+                tar_data[j++] = blank;
+            }
+            else
+            {
+                tar_data[j++] = p + 1;
+            }
+        }
+        if(status == 0)
+        {
+            continue;
+        }
+        if(strchr(endChars, *p) != NULL)
+        {
+            *p = 0;
+            break;
+        }
+        if(*p == splitChar)
+        {
+            *p = 0;
+            if(j >= limit)
+            {
+                return -3;
+            }
+            if(strchr(endChars, *(p + 1)) != NULL || *(p + 1) == splitChar)
+            {
+                tar_data[j++] = blank;
+            }
+            else
+            {
+                tar_data[j++] = p + 1;
+            }
+        }
+    }
+    for(i = j; i < limit; i++)
+    {
+        tar_data[i] = blank;
+    }
+    return j;
+}
+
+static int cmd_analyse(cmd_data_struct * command)
+{
+	char        *data_ptr, split_ch = ',';
+	int         cmd_Len, par_len;
+	
+	
+	if(command == NULL || command->rcv_length < 1)
+  {
+        return -1;
+  }
+	//fun_toUpper(command->rcv_msg);
+	data_ptr = &command->rcv_msg[command->position];//parse_sms_head(command->rcv_msg); 
+	
+	cmd_Len = strlen(data_ptr);
+	
+
+    if(data_ptr[cmd_Len - 3] == '#' && data_ptr[cmd_Len - 2] == 0x0D && data_ptr[cmd_Len - 1] == 0x0A)
+    {
+        data_ptr[cmd_Len - 3] = 0;
+    }
+    else if(data_ptr[cmd_Len - 2] == '#' && data_ptr[cmd_Len - 1] == 0x0D)
+    {
+        data_ptr[cmd_Len - 2] = 0;
+    }
+    else if(data_ptr[cmd_Len - 1] == '#')
+    {
+        data_ptr[cmd_Len - 1] = 0;
+    }
+			
+		par_len = fun_str_analyse(data_ptr, command->pars, 10, NULL, "\r\n", split_ch);
+
+    if(par_len > 10 || par_len <= 0)
+    {
+        return -1;
+    }
+		
+		if(par_len > 10 || par_len <= 0)
+    {
+        return -1;
+    }
+		
+		if((par_len - CM_Main) > 0)
+    {
+        command->part = par_len - CM_Main;
+    }
+    else
+    {
+        command->part = 0;
+    }	
+
+	return 1;
+}
+
+cmd_data_struct at_get_at_para(custom_cmdLine *commandBuffer_p)
+{
+		static cmd_data_struct at_cmd = {0};
+		if(commandBuffer_p->length && (commandBuffer_p->length <128))
+		{
+			memset(&at_cmd, 0, sizeof(cmd_data_struct)); 
+			memcpy(&at_cmd.rcv_msg, commandBuffer_p->character, commandBuffer_p->length);	
+
+			at_cmd.rcv_length = commandBuffer_p->length;
+			at_cmd.position   = commandBuffer_p->position;
+			
+			cmd_analyse(&at_cmd);
+		}
+		return at_cmd;
+}
+
 static custom_rsp_type_enum custom_test_func(custom_cmdLine *commandBuffer_p)
 {
-	printf("enter custom_test_func adc1 = %d; adc2= %d\r\n",adc_data.adc1, adc_data.adc2);
+	printf("\r\nOK\r\n");
 	return  CUSTOM_RSP_OK;
 }
 
+static custom_rsp_type_enum custom_readadc_func(custom_cmdLine *commandBuffer_p)
+{
+	printf("+MADC:%d,%d,%d\r\n",adc_data.adc1,adc_data.adc2,adc_data.adc3);
+	return  CUSTOM_RSP_OK;	
+}
+
+static custom_rsp_type_enum custom_power_switch_func(custom_cmdLine *commandBuffer_p)
+{
+	custom_cmd_mode_enum result;
+	custom_rsp_type_enum ret_value  = CUSTOM_RSP_ERROR;
+	result = custom_find_cmd_mode(commandBuffer_p);
+	cmd_data_struct cmd = at_get_at_para(commandBuffer_p);
+	if(cmd.part != 1)
+		return CUSTOM_RSP_ERROR;
+	
+	char* data = cmd.pars[0];
+	
+	int8_t ret = atoi(&data[0]);
+	
+		switch (ret){
+			case 0:
+				nrf_gpio_pin_write(20,0);  //切换到副电
+				ret_value = CUSTOM_RSP_OK;
+				break;
+			case 1:
+				nrf_gpio_pin_write(20,1);  //切换到主电
+				ret_value = CUSTOM_RSP_OK; 
+				break;
+			default:
+				ret_value = CUSTOM_RSP_ERROR;
+				break;
+		}
+		printf("+POWSWITCH:%d\r\n",ret);
+	return  ret_value;
+}
+
+
+static custom_rsp_type_enum custom_led_func(custom_cmdLine *commandBuffer_p)
+{
+	custom_cmd_mode_enum result;
+	custom_rsp_type_enum ret_value  = CUSTOM_RSP_ERROR;
+	result = custom_find_cmd_mode(commandBuffer_p);
+	cmd_data_struct cmd = at_get_at_para(commandBuffer_p);
+	if(cmd.part != 1)
+		return CUSTOM_RSP_ERROR;
+	
+	char* data = cmd.pars[0];
+	
+	int8_t ret = atoi(&data[0]);
+	
+		switch (ret){
+			case 0:
+				nrf_gpio_pin_write(LED_PIN,0);  //LED灯灭
+				ret_value = CUSTOM_RSP_OK;
+				break;
+			case 1:
+				nrf_gpio_pin_write(LED_PIN,1);  //LED灯亮
+				ret_value = CUSTOM_RSP_OK; 
+				break;
+			default:
+				ret_value = CUSTOM_RSP_ERROR;
+				break;
+		}
+		printf("+MLED:%d\r\n",ret);
+	return  ret_value;
+}
+
+static custom_rsp_type_enum custom_rrssi_func(custom_cmdLine *commandBuffer_p)
+{
+	custom_rsp_type_enum ret_value  = CUSTOM_RSP_ERROR;
+
+	printf("+RSSI:%d\r\n",ble_rssi);
+	return  ret_value;
+}
+
 const custom_atcmd custom_cmd_table[ ] =
-{    
-	{"AT%CUSTOM",custom_test_func},
+{   
+	{"AT",custom_test_func},	
+	{"AT+MADC",custom_readadc_func},
+	{"AT+POWSWITCH",custom_power_switch_func},
+	{"AT+MLED",custom_led_func},
+	{"AT+MRSSI",custom_rrssi_func},
 	//{"AT+MSENSOR",custom_sensor_func},
   {NULL, NULL}  // this lind should not be removed, it will be treat as 
 };
 
 static bool uart_custom_common_hdlr(char *full_cmd_string)
 {
-	printf("data:%s\r\n",	full_cmd_string);
 	char buffer[128];
 	char *cmd_name, *cmdString;
 	uint8_t index = 0; 
@@ -724,7 +1025,7 @@ static bool uart_custom_common_hdlr(char *full_cmd_string)
 	custom_cmdLine command_line;
 	cmd_name = buffer;
 	length = strlen(full_cmd_string);
-	length = length > 128 ? 128 : length;  
+	length = length > 127 ? 127 : length;  
 
 	while ((full_cmd_string[index] != '=' ) &&  //might be TEST command or EXE command
 				(full_cmd_string[index] != '?' ) && // might be READ command
@@ -745,11 +1046,12 @@ static bool uart_custom_common_hdlr(char *full_cmd_string)
             command_line.character[127] = '\0';
             command_line.length = strlen(command_line.character);
             command_line.position = index;
-            if (custom_cmd_table[i].commandFunc(&command_line) == CUSTOM_RSP_OK) {
-								//PutUARTBytes("OK");
-						}else{
-								//PutUARTBytes("\r\nERROR\r\n");
-            }
+						custom_cmd_table[i].commandFunc(&command_line);
+//            if (custom_cmd_table[i].commandFunc(&command_line) == CUSTOM_RSP_OK) {
+//								printf("\r\nOK\r\n");
+//						}else{
+//								printf("\r\nERROR\r\n");
+//            }
             return true;
         }
     }   
@@ -766,13 +1068,25 @@ static void uart_timeout_handler(void * p_context)
 		timer_start = 0;
 		index = 0;
 }
+//static uint8_t uart_event = 0;
+
+static void scheduler_handler(void *p_event_data, uint16_t event_size)
+{
+	//printf("scheduler_handler\r\n");
+	UNUSED_PARAMETER(p_event_data);
+	UNUSED_PARAMETER(event_size);
+	UNUSED_VARIABLE(app_uart_get(&data_array[index]));
+}
 
 static void uart_event_handle(app_uart_evt_t * p_event)
 {
 	switch (p_event->evt_type)
 	{
 				case APP_UART_DATA_READY:
+							//app_sched_event_put(NULL, 0, scheduler_handler);
+							//uart_event = 1;
 						UNUSED_VARIABLE(app_uart_get(&data_array[index]));
+						//printf("%s\r\n",data_array);
 						index++;
 				
 						if(timer_start == 0){
@@ -866,6 +1180,13 @@ static void scan_start(void)
     APP_ERROR_CHECK(ret);
 }
 
+#define SCHED_MAX_EVENT_DATA_SIZE 						MAX(APP_TIMER_SCHED_EVT_SIZE, 0)
+#define SCHED_QUEUE_SIZE                      20
+
+static void scheduler_init(void)
+{
+	APP_SCHED_INIT(SCHED_MAX_EVENT_DATA_SIZE, SCHED_QUEUE_SIZE);
+}
 
 /**
  * @brief Function for application main entry.
@@ -881,6 +1202,8 @@ int main(void)
     //err_code = bsp_init(BSP_INIT_LED, APP_TIMER_TICKS(100, APP_TIMER_PRESCALER), NULL);
     //APP_ERROR_CHECK(err_code);
 		uart_init();
+		scheduler_init();
+	
 		nrf_gpio_cfg_output(20);
 		nrf_gpio_pin_write(20,1);	
 	
@@ -917,6 +1240,8 @@ int main(void)
     // Enter main loop.
     for (;; )
     {	
+				app_sched_execute();
+			
         if (NRF_LOG_PROCESS() == false)
         {
             power_manage();
