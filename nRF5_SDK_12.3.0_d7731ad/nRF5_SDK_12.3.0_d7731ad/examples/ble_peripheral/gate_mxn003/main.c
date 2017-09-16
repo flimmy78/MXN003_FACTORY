@@ -84,7 +84,7 @@
 #include "nrf_delay.h"
 #include "battery_adc.h"
 
-#define NRF_LOG_MODULE_NAME "MXN003F"
+#define NRF_LOG_MODULE_NAME "GATE_MXN003"
 #include "nrf_log.h"
 #include "nrf_log_ctrl.h"
 #include "ata_custom.h"
@@ -94,6 +94,7 @@
 #include "sensor_drv.h"
 #include <modem_2g.h>
 #include "ble_gap.h"
+#include "ble_lbs.h"
 
 #define __ATA_TEST_MODE__
 
@@ -109,9 +110,9 @@
 #define CENTRAL_LINK_COUNT              0                                           /**< Number of central links used by the application. When changing this number remember to adjust the RAM settings*/
 #define PERIPHERAL_LINK_COUNT           1                                           /**< Number of peripheral links used by the application. When changing this number remember to adjust the RAM settings*/
 
-#define DEVICE_NAME                     "TEST"                           			/**< Name of device. Will be included in the advertising data. */
+#define DEVICE_NAME                     "GATE_MXN003"                           			/**< Name of device. Will be included in the advertising data. */
 #define MANUFACTURER_NAME               "NordicSemiconductor"                       /**< Manufacturer. Will be passed to Device Information Service. */
-#define APP_ADV_INTERVAL                64                                         /**< The advertising interval (in units of 0.625 ms. This value corresponds to 187.5 ms). */
+#define APP_ADV_INTERVAL                640                                         /**< The advertising interval (in units of 0.625 ms. This value corresponds to 187.5 ms). */
 #define APP_ADV_TIMEOUT_IN_SECONDS      0                                         /**< The advertising timeout in units of seconds. */
 
 #define APP_TIMER_PRESCALER             0                                           /**< Value of the RTC1 PRESCALER register. */
@@ -136,7 +137,7 @@
 #define SEC_PARAM_MAX_KEY_SIZE          16                                          /**< Maximum encryption key size. */
 
 #define DEAD_BEEF                       0xDEADBEEF                                  /**< Value used as error code on stack dump, can be used to identify stack location on stack unwind. */
-static int8_t                           tx_power = -30;  
+static int8_t                           tx_power = 0;  
 
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;                            /**< Handle of the current connection. */
 
@@ -151,6 +152,8 @@ static uint8_t index = 0;
 static uint8_t timer_start = 0;
 static void uart_timeout_handler(void * p_context);
 
+
+ble_lbs_t                        m_lbs; 
 
 #define SCAN_INTERVAL           0x00A0                          /**< Determines scan interval in units of 0.625 millisecond. */
 #define SCAN_WINDOW             0x0050                          /**< Determines scan window in units of 0.625 millisecond. */
@@ -380,33 +383,40 @@ static void gap_params_init(void)
     }
    }*/
 
+static void led_write_handler(ble_lbs_t * p_lbs, uint8_t led_state){
+	switch(led_state) {
+		case 0x1:
+				 NRF_LOG_INFO("GATE_MXN003 2G open\r\n");
+				modem_2g_open(MODME_CONTRL_PIN);  //打开模块
+				break;
+		case 0x2:
+			  NRF_LOG_INFO("GATE_MXN003 2G close\r\n");
+				modem_2g_close(MODME_CONTRL_PIN);  //打开模块
+				break;
+		case 0x3:
+				start_read_adc();
+				break;
+		case 0x04:
+				nrf_gpio_pin_write(20, 1);//主电池
+				break;
+		case 0x05:
+				nrf_gpio_pin_write(20, 0);//付电池
+				break;
+		default:
+        break;
+	}
+}
+
 /**@brief Function for initializing services that will be used by the application.
  */
 static void services_init(void)
 {
-    /* YOUR_JOB: Add code to initialize the services used by the application.
-       uint32_t                           err_code;
-       ble_xxs_init_t                     xxs_init;
-       ble_yys_init_t                     yys_init;
+		uint32_t       err_code;
+		ble_lbs_init_t init;
 
-       // Initialize XXX Service.
-       memset(&xxs_init, 0, sizeof(xxs_init));
-
-       xxs_init.evt_handler                = NULL;
-       xxs_init.is_xxx_notify_supported    = true;
-       xxs_init.ble_xx_initial_value.level = 100;
-
-       err_code = ble_bas_init(&m_xxs, &xxs_init);
-       APP_ERROR_CHECK(err_code);
-
-       // Initialize YYY Service.
-       memset(&yys_init, 0, sizeof(yys_init));
-       yys_init.evt_handler                  = on_yys_evt;
-       yys_init.ble_yy_initial_value.counter = 0;
-
-       err_code = ble_yy_service_init(&yys_init, &yy_init);
-       APP_ERROR_CHECK(err_code);
-     */
+		init.led_write_handler = led_write_handler;
+		err_code = ble_lbs_init(&m_lbs, &init);
+		APP_ERROR_CHECK(err_code);
 }
 
 
@@ -729,6 +739,7 @@ static void ble_evt_dispatch(ble_evt_t * p_ble_evt)
     bsp_btn_ble_on_ble_evt(p_ble_evt);
     on_ble_evt(p_ble_evt);
     ble_advertising_on_ble_evt(p_ble_evt);
+		ble_lbs_on_ble_evt(&m_lbs, p_ble_evt);
 
 	
     /*YOUR_JOB add calls to _on_ble_evt functions from each service your application is using
@@ -894,10 +905,10 @@ static void advertising_init(void)
     advdata.name_type               = BLE_ADVDATA_FULL_NAME;
     advdata.include_appearance      = true;
     advdata.flags                   = BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE;
-//    advdata.uuids_complete.uuid_cnt = sizeof(m_adv_uuids) / sizeof(m_adv_uuids[0]);
-//		advdata.uuids_complete.p_uuids  = m_adv_uuids;
-		advdata.uuids_complete.uuid_cnt = sizeof(find_uuids) / sizeof(find_uuids[0]);
-    advdata.uuids_complete.p_uuids  = find_uuids;
+    advdata.uuids_complete.uuid_cnt = sizeof(m_adv_uuids) / sizeof(m_adv_uuids[0]);
+		advdata.uuids_complete.p_uuids  = m_adv_uuids;
+//		advdata.uuids_complete.uuid_cnt = sizeof(find_uuids) / sizeof(find_uuids[0]);
+//    advdata.uuids_complete.p_uuids  = find_uuids;
 
 
     memset(&options, 0, sizeof(options));
@@ -1103,24 +1114,29 @@ int main(void)
 {
     uint32_t err_code;
     bool     erase_bonds;
-		int8_t sensor_status;
+//		int8_t sensor_status;
 
     // Initialize.
     err_code = NRF_LOG_INIT(NULL);
     APP_ERROR_CHECK(err_code);
-		ele_mach_init();  //电机初始化
-		voice_chip_init();  //语音芯片初始化
+//		ele_mach_init();  //电机初始化
+//		voice_chip_init();  //语音芯片初始化
+		//默认主电池
+		nrf_gpio_cfg_output(20);
+		nrf_gpio_pin_write(20, 1);
+	
 		adc_config_init();  //ADC 初始化
 		modem_2g_init(MODME_CONTRL_PIN);
-		modem_2g_open(MODME_CONTRL_PIN); //开机打开2G模块，进入测试
-		nrf_delay_ms(500);
-		uart_init();
-		sensor_status = sensor_type_auto_maching_init(); //初始化gsensor
-		if(sensor_status != 1){
-			NRF_LOG_INFO("sensor error\r\n");
-		}else{
-			open_sensor_monitor(1);
-		}
+	//	modem_2g_open(MODME_CONTRL_PIN); //开机打开2G模块，进入测试
+	//	modem_2g_close(MODME_CONTRL_PIN);
+		//nrf_delay_ms(500);
+		//uart_init();
+//		sensor_status = sensor_type_auto_maching_init(); //初始化gsensor
+//		if(sensor_status != 1){
+//			NRF_LOG_INFO("sensor error\r\n");
+//		}else{
+//			open_sensor_monitor(1);
+//		}
     timers_init();
     buttons_leds_init(&erase_bonds);
     ble_stack_init();
@@ -1135,12 +1151,12 @@ int main(void)
     conn_params_init();
 
     // Start execution.
-    NRF_LOG_INFO("Template started\r\n");
+    NRF_LOG_INFO("GATE_MXN003 started\r\n");
     application_timers_start();
     err_code = ble_advertising_start(BLE_ADV_MODE_FAST);
     APP_ERROR_CHECK(err_code);
     // Enter main loop.
-		scan_start();
+		//scan_start();  //扫描蓝牙
 		
     for (;;)
     {	
