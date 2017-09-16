@@ -127,7 +127,8 @@ static uint8_t                          number_of_adc_channels;
 
 APP_PWM_INSTANCE(PWM1,1);                   // Create the instance "PWM1" using TIMER1.
 #define LED_PIN   8
-int8_t ble_rssi = 0;
+static int8_t ble_rssi = 0;
+static int8_t rssi_status = 0;
 
 typedef struct
 {
@@ -476,6 +477,7 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
 				{
 					if (is_uuid_present(find_uuids, p_adv_report))
 					{
+							rssi_status = 1;
 							ble_rssi = p_adv_report->rssi;
 							//printf("uuid mach!!\r\n");
 					}
@@ -999,8 +1001,11 @@ static custom_rsp_type_enum custom_led_func(custom_cmdLine *commandBuffer_p)
 static custom_rsp_type_enum custom_rrssi_func(custom_cmdLine *commandBuffer_p)
 {
 	custom_rsp_type_enum ret_value  = CUSTOM_RSP_ERROR;
-
-	printf("+RSSI:%d\r\n",ble_rssi);
+	if(1 == rssi_status)
+		printf("+RSSI:%d\r\n",ble_rssi);
+	else
+		printf("+RSSI:NULL\r\n");
+	rssi_status = 0;
 	return  ret_value;
 }
 
@@ -1029,7 +1034,8 @@ static bool uart_custom_common_hdlr(char *full_cmd_string)
 
 	while ((full_cmd_string[index] != '=' ) &&  //might be TEST command or EXE command
 				(full_cmd_string[index] != '?' ) && // might be READ command
-			(full_cmd_string[index] != 13 ) && //carriage return
+			(full_cmd_string[index] != 13 ) &&    //carriage return
+			(full_cmd_string[index] != 10) && 
 	index < length)  
 	{
 		cmd_name[index] = full_cmd_string[index] ;
